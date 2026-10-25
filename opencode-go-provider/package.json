@@ -4,7 +4,11 @@
   "type": "module",
   "description": "acq mixin kit (hybrid/v1): harness-agnostic OpenCode Go provider input",
   "scripts": {
-    "test": "node --test tests/normalize-catalog.test.mjs",
+    "test": "node --test tests/normalize-catalog.test.mjs tests/kit-contract.test.mjs",
     "sync:opencode-go-models": "node scripts/normalize-catalog.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "yaml": "^2.9.1"
   }
 }

@@ -1,24 +1,43 @@
 # spec.yaml — opencode-go-provider (a neutral acq mixin kit, hybrid/v1)
 #
-# Publishes OpenCode Go provider input for any OpenAI-compatible harness and
-# allow-lists its endpoint. The kit is deliberately harness-agnostic: it names
-# no agent and writes no agent configuration. It supplies provider facts plus a
-# vendored neutral model catalog, and a harness that speaks the OpenAI-compatible
-# protocol can consume both without learning anything OpenCode-specific.
+# STATUS: PREVIEW. The kit's facts, catalog, and tests are complete, but it is
+# not usable with `acq run`/`acq create` until the pinned Patterns release binds
+# this provider in provider-credential-bindings.json:
+#
+#   "opencode-go": "OPENCODE_GO_API_KEY"
+#
+# Without that consumer-side binding, create-time provider-input materialization
+# fails with:
+#
+#   facts.keyEnv must match the host credential binding
+#
+# See README.md "Status" and TROUBLESHOOTING.md.
+#
+# Publishes OpenCode Go provider input for harnesses that speak the
+# OpenAI-compatible protocol and send the session/user-agent headers OpenCode Go
+# asks for. The kit names no agent and writes no agent configuration. It
+# supplies provider facts plus a vendored neutral model catalog, and a harness
+# consumes both without learning anything OpenCode-specific.
 #
 # This is the NEUTRAL (backend-agnostic) form: acq's kit-translate layer maps
-# the declarative caps/files/commands below onto whichever backend is active
-# (sbx today; msb from Phase 2).
+# the declarative caps/files below onto whichever backend is active (sbx today;
+# msb from Phase 2).
 #
 # What it does: allow-list the provider endpoint and publish provider metadata
 # for acq. It deliberately does NOT render any harness configuration; the
 # harness kit (e.g. an OpenCode kit) remains the sole writer of that harness's
 # global config.
 #
-# Secret: the OpenCode Go API key is NOT in this kit. A harness renderer reads
+# Secret: the OpenCode Go API key is NOT in this kit. The harness renderer reads
 # the injected OPENCODE_GO_API_KEY env var; acq supplies it at runtime via the
-# active backend's credential path (e.g. `acq secret set`). The real key never
-# enters the kit spec.
+# active backend's credential path. The binding is recorded only when BOTH
+# --host opencode.ai and --env OPENCODE_GO_API_KEY are supplied to
+# `acq secret set`; --env must equal facts.keyEnv below.
+#
+# No `environment:` block is declared, deliberately. This kit needs no variables
+# of its own, and declaring an empty OPENCODE_GO_API_KEY here could shadow the
+# placeholder the backend injects. The patterns env-ownership check is
+# aspirational and not currently enforced; do not add a block to satisfy it.
 #
 # Neutral model catalog: this kit ships a vendored snapshot of the OpenCode Go
 # models that are served over the OpenAI-compatible /openai/v1/chat/completions
@@ -30,6 +49,8 @@
 # OpenAI-Responses-shaped endpoints. Those models are intentionally absent:
 # this kit declares apiProtocol `openai-compatible` only, and a catalog entry
 # for a model that cannot be reached over that protocol would be a routing bug.
+# The normalizer enforces an explicit id allowlist so a raw /v1/models capture
+# cannot slip an unroutable id into the catalog.
 #
 # Trust: the snapshot is a convenience payload, not a trust anchor. It drops
 # under /home/agent, which the agent owns, so it is guest-writable. It carries
@@ -37,15 +58,16 @@
 # host, baseUrl, modelsUrl, or credential field, so rewriting it cannot redirect
 # a credential or point a consumer at a different host. Consumers that need
 # TRUSTWORTHY facts must read the host-materialized provider generation, never
-# this file.
+# this file. (The guest-writable duplicate is deliberate parity with the
+# usai-provider reference kit; see docs/decisions/0001.)
 schemaVersion: "hybrid/v1"
 kind: mixin
 name: opencode-go-provider
-displayName: OpenCode Go Provider
+displayName: OpenCode Go Provider (Preview)
 description: >
   Publishes OpenCode Go provider input and allow-lists its endpoint. Harness
-  kits render the backend-selected provider generation, so any OpenAI-compatible
-  harness can consume it.
+  kits render the backend-selected provider generation. Preview: requires a
+  consumer-side credential binding before create-time materialization succeeds.
 
 caps:
   network:
@@ -72,7 +94,7 @@ files:
     source: files/home/opencode-go/model-catalog-snapshot.json
 
 agentContext: |
-  ## OpenCode Go Provider
+  ## OpenCode Go Provider (Preview)
 
   This kit is harness-agnostic. It publishes two things and nothing else:
 
@@ -84,17 +106,35 @@ agentContext: |
      the models OpenCode Go serves over its OpenAI-compatible
      `/openai/v1/chat/completions` endpoint.
 
-  Any harness that speaks the OpenAI-compatible protocol can consume those
-  facts and that catalog; nothing here is specific to OpenCode the agent. Your
-  harness configuration is rendered by the harness kit selected alongside this
-  one, not by this kit.
-
-  Credentials are injected by `acq` and are not stored in this sandbox or in
-  this kit. Never write the API key into a file, a catalog, or this spec.
+  Your harness configuration is rendered by the harness kit selected alongside
+  this one, not by this kit. Credentials are injected by `acq` and are not
+  stored in this sandbox or in this kit. Never write the API key into a file, a
+  catalog, or this spec. Injection works only when the credential was stored
+  with both `--host opencode.ai` and `--env OPENCODE_GO_API_KEY`; `--env` must
+  equal the facts `keyEnv`.
 
   OpenCode Go also serves some models over Anthropic-, Google-, and
   OpenAI-Responses-shaped endpoints. Those models are intentionally not in the
   catalog: this provider input declares OpenAI-compatible chat completions only.
+
+  Preconditions for using this provider:
+
+  - **Region:** the default primary, `deepseek-v4-pro`, requires the workspace
+    Regions privacy setting to include **Global**. Without it, requests to that
+    model are refused. DeepSeek V4.1 Flash has the same requirement.
+    `deepseek-v4-pro` also has peak/off-peak pricing; the catalog records the
+    off-peak baseline.
+  - **Session header:** send a stable `x-opencode-session` value per
+    conversation. Some clients are recognized by their native session header,
+    but a custom harness should send `x-opencode-session`.
+  - **User-Agent:** identify the client with its own product token (for example
+    `my-coding-agent/1.0`), not a generic SDK or HTTP-library name.
+
+  This kit is PREVIEW: until the consumer's credential-binding registry maps
+  `opencode-go` to `OPENCODE_GO_API_KEY`, create-time provider-input
+  materialization fails with `facts.keyEnv must match the host credential
+  binding`. Provider input is materialized only at sandbox create time;
+  `acq kit apply` does not refresh it.
 
 # No backend shortcuts: every backend uses the same allow-list + file-drop +
 # projection mechanism for this kit.

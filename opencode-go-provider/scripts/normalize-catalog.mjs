@@ -10,19 +10,28 @@
 //
 //   { "object": "list", "data": [ { "id": "...", "object": "model", ... } ] }
 //
-// The LIVE endpoint returns ids only (plus object/created/owned_by). Pricing and
-// limits are published separately at https://opencode.ai/docs/go, so an
-// authoring input is an annotated capture: each record MAY also carry `name`,
-// `contextWindow`, `maxOutputTokens`, and `cost` in the same field names the
-// neutral schema uses. This script copies those fields verbatim and drops the
-// endpoint-envelope fields (`object`, `created`, `owned_by`, `capturedAt`,
+// The LIVE endpoint returns ids only (plus object/created/owned_by) and includes
+// models served over OTHER protocols plus free/experimental/legacy ids. Pricing
+// and limits are published separately at https://opencode.ai/docs/go, so an
+// authoring input is an annotated, curated capture: each record MAY also carry
+// `name`, `contextWindow`, `maxOutputTokens`, and `cost` in the same field names
+// the neutral schema uses. This script copies those fields verbatim and drops
+// the endpoint-envelope fields (`object`, `created`, `owned_by`, `capturedAt`,
 // `note`), which the neutral v1 shape does not model.
 //
-// This is a HOST-SIDE authoring tool (it lives under scripts/, not files/). It
-// is pure in spirit: reads exactly one file, writes exactly one file, makes no
-// network calls, and has no other side effects. Fetching the live endpoint and
-// annotating pricing is a separate, human-gated step; this tool only reshapes an
-// already-produced capture so the transform is reviewable and testable.
+// WARNING: never feed a raw `/v1/models` response to this tool. That response
+// lists models this kit cannot route (Anthropic-, Google-, and
+// OpenAI-Responses-shaped endpoints) and free/experimental ids that are not in
+// the documented endpoint table. Every id is checked against
+// OPENAI_COMPATIBLE_MODEL_IDS below and an unknown id is a hard failure.
+//
+// This is a HOST-SIDE authoring tool (it lives under scripts/, not files/). acq
+// materializes it with the rest of the provider bundle and mounts that tree
+// read-only, so the agent can execute it but cannot modify it. It makes no
+// network calls and has no side effects beyond the one output file it is asked
+// to write. Fetching the live endpoint and annotating pricing is a separate,
+// human-gated step; this tool only reshapes an already-produced capture so the
+// transform is reviewable and testable.
 //
 // SCOPE DECISION: this kit declares apiProtocol `openai-compatible` only, so the
 // source capture must already be restricted to models served over
@@ -61,6 +70,7 @@
 // Both defaults resolve relative to this script's own directory, so they work
 // regardless of the caller's cwd.
 
+import { realpathSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import process from "node:process"
@@ -79,6 +89,36 @@ const MODEL_NAME_PATTERN = /^[^\u0000-\u001F\u007F\u2028\u2029]+$/
 const MAX_MODELS = 500
 const RECOMMENDATION_ROLES = ["primary", "small", "compaction", "summary", "title"]
 const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"]
+
+// Single source of truth for protocol coverage. These are the ids OpenCode Go
+// serves over /openai/v1/chat/completions that appear in the docs endpoint
+// table. Tests import this constant, so the fixture, the normalizer, and the
+// shipped snapshot cannot disagree about what "OpenAI-compatible" means here.
+//
+// This list is deliberately explicit rather than derived from the live models
+// endpoint: the endpoint mixes protocols and includes free, experimental, and
+// legacy ids. A new upstream model fails normalization until someone confirms
+// its protocol and adds it here.
+export const OPENAI_COMPATIBLE_MODEL_IDS = Object.freeze([
+  "glm-5.3-flash",
+  "glm-5.3",
+  "glm-5.2",
+  "kimi-k3.1-pro",
+  "kimi-k3",
+  "kimi-k2.7-code",
+  "longcat-2.0",
+  "deepseek-v4.1-flash",
+  "deepseek-v4-pro",
+  "mimo-v2.6-flash",
+  "mimo-v2.6-pro",
+  "mimo-v2.5",
+  "mimo-v2.5-pro",
+  "minimax-m3.1-flash",
+  "hy4-preview",
+  "hy3",
+  "step-5-preview",
+  "beam-free",
+])
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -197,6 +237,20 @@ export function normalizeCatalog(sourceCatalog) {
   if (new Set(ids).size !== ids.length) {
     throw new Error("normalizeCatalog: source catalog contains duplicate model IDs")
   }
+  // Validate every record first so malformed entries report their own field
+  // errors; only then check protocol coverage. A raw /v1/models capture fails
+  // here instead of silently publishing unroutable models.
+  const normalizedModels = models.map(normalizeModel)
+  const unknownIds = normalizedModels
+    .map((model) => model.id)
+    .filter((id) => !OPENAI_COMPATIBLE_MODEL_IDS.includes(id))
+  if (unknownIds.length > 0) {
+    throw new Error(
+      `normalizeCatalog: model ${unknownIds.map((id) => `'${id}'`).join(", ")} is not in the OpenAI-compatible allowlist ` +
+        "(see OPENAI_COMPATIBLE_MODEL_IDS). Confirm the model's protocol and add it deliberately; " +
+        "never feed a raw /v1/models response to this tool.",
+    )
+  }
   const recommendations = sourceCatalog.recommendations
   if (recommendations !== undefined) {
     if (!isPlainObject(recommendations)) {
@@ -214,7 +268,7 @@ export function normalizeCatalog(sourceCatalog) {
   return {
     schemaVersion: NEUTRAL_SCHEMA_VERSION,
     providerId: PROVIDER_ID,
-    models: models.map(normalizeModel),
+    models: normalizedModels,
     ...(recommendations === undefined ? {} : { recommendations: { ...recommendations } }),
   }
 }
@@ -250,9 +304,20 @@ async function main() {
 
 // Portable "run as a script" guard. Comparing import.meta.url to a hand-built
 // `file://${process.argv[1]}` string fails on Windows (backslash paths and the
-// third slash in file:///C:/...), which silently turns a CLI invocation into a
-// no-op. Resolving both sides avoids that.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// third slash in file:///C:/...). It also fails when the script is invoked
+// through a symlink or junction: Node resolves a module's realpath for
+// import.meta.url, while process.argv[1] keeps the link path. Resolve BOTH sides
+// so a linked install still runs instead of silently exiting 0 without writing.
+function isEntryPoint() {
+  if (!process.argv[1]) return false
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  }
+}
+
+if (isEntryPoint()) {
   main().catch((error) => {
     console.error(`normalize-catalog: failed: ${error.message}`)
     process.exit(1)

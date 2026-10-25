@@ -4,32 +4,11 @@ import { readFile, rm } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { normalizeCatalog } from "../scripts/normalize-catalog.mjs"
+import { OPENAI_COMPATIBLE_MODEL_IDS, normalizeCatalog } from "../scripts/normalize-catalog.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const fixturePath = path.join(__dirname, "fixtures/normalize-source.json")
 const snapshotPath = path.join(__dirname, "../files/home/opencode-go/model-catalog-snapshot.json")
-
-const OPENAI_COMPATIBLE_IDS = [
-  "glm-5.3-flash",
-  "glm-5.3",
-  "glm-5.2",
-  "kimi-k3.1-pro",
-  "kimi-k3",
-  "kimi-k2.7-code",
-  "longcat-2.0",
-  "deepseek-v4.1-flash",
-  "deepseek-v4-pro",
-  "mimo-v2.6-flash",
-  "mimo-v2.6-pro",
-  "mimo-v2.5",
-  "mimo-v2.5-pro",
-  "minimax-m3.1-flash",
-  "hy4-preview",
-  "hy3",
-  "step-5-preview",
-  "beam-free",
-]
 
 async function readFixture() {
   return JSON.parse(await readFile(fixturePath, "utf8"))
@@ -48,7 +27,7 @@ test("normalizeCatalog covers exactly the OpenAI-compatible OpenCode Go models",
 
   assert.deepEqual(
     models.map((model) => model.id),
-    OPENAI_COMPATIBLE_IDS,
+    OPENAI_COMPATIBLE_MODEL_IDS,
   )
 })
 
@@ -109,8 +88,8 @@ test("normalizeCatalog keeps free models as explicit zero prices", async () => {
 
 test("normalizeCatalog copies only the four known cost keys", async () => {
   assert.deepEqual(
-    normalizeCatalog({ data: [{ id: "free", cost: { input: 0, unknown: "ignored" } }] }).models,
-    [{ id: "free", cost: { input: 0 } }],
+    normalizeCatalog({ data: [{ id: "beam-free", cost: { input: 0, unknown: "ignored" } }] }).models,
+    [{ id: "beam-free", cost: { input: 0 } }],
   )
 })
 
@@ -125,13 +104,26 @@ test("normalizeCatalog preserves recommendations that reference catalog ids", as
 
 test("normalizeCatalog rejects recommendations that reference an absent model", () => {
   assert.throws(
-    () => normalizeCatalog({ data: [{ id: "model-a" }], recommendations: { primary: "model-b" } }),
+    () => normalizeCatalog({ data: [{ id: "glm-5.2" }], recommendations: { primary: "glm-5.3" } }),
     /recommendation 'primary' must reference a model id/,
   )
   assert.throws(
-    () => normalizeCatalog({ data: [{ id: "model-a" }], recommendations: { fastest: "model-a" } }),
+    () => normalizeCatalog({ data: [{ id: "glm-5.2" }], recommendations: { fastest: "glm-5.2" } }),
     /unsupported recommendation role 'fastest'/,
   )
+})
+
+test("normalizeCatalog rejects ids outside the OpenAI-compatible allowlist", () => {
+  // These ids exist on the live models endpoint but are served over a different
+  // protocol, are stealth/experimental, or are legacy. A raw /v1/models response
+  // must fail rather than publish unroutable models.
+  for (const id of ["gpt-6-luna", "gemini-4-argon", "space-bunny", "cat-jam-free", "glm-5.1"]) {
+    assert.throws(
+      () => normalizeCatalog({ data: [{ id }] }),
+      /is not in the OpenAI-compatible allowlist/,
+      `${id} should be rejected`,
+    )
+  }
 })
 
 test("normalizeCatalog throws a clear error when the source has no data[] array", () => {
@@ -179,7 +171,7 @@ test("normalizeCatalog rejects duplicate and excessive model lists", () => {
 })
 
 test("normalizeCatalog accepts omitted optional metadata and an empty catalog", () => {
-  assert.deepEqual(normalizeCatalog({ data: [{ id: "bare" }] }).models, [{ id: "bare" }])
+  assert.deepEqual(normalizeCatalog({ data: [{ id: "glm-5.2" }] }).models, [{ id: "glm-5.2" }])
   assert.deepEqual(normalizeCatalog({ data: [] }).models, [])
 })
 
@@ -208,6 +200,42 @@ test("CLI: rejects unknown options and missing option values", async () => {
   await assert.rejects(execFileAsync(process.execPath, [scriptPath, "--soruce", fixturePath]), /unknown option/)
   await assert.rejects(execFileAsync(process.execPath, [scriptPath, "--source"]), /requires a path/)
   await assert.rejects(execFileAsync(process.execPath, [scriptPath, "--out"]), /requires a path/)
+})
+
+test("CLI: still runs when invoked through a symlink/junction to the kit", async (t) => {
+  // Node resolves a module's realpath for import.meta.url but leaves
+  // process.argv[1] as the link path. A naive string comparison therefore
+  // silently no-ops. This invokes the script through a linked kit directory and
+  // asserts real output, which fails if entry-point detection regresses.
+  const { execFile } = await import("node:child_process")
+  const { promisify } = await import("node:util")
+  const os = await import("node:os")
+  const { mkdtemp, symlink, rm } = await import("node:fs/promises")
+  const execFileAsync = promisify(execFile)
+
+  const kitRoot = path.resolve(__dirname, "..")
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "opencode-go-kit-link-"))
+  const linkPath = path.join(tmpDir, "kit-link")
+  const outPath = path.join(tmpDir, "linked-output.json")
+
+  try {
+    try {
+      // A Windows junction needs no elevation; a POSIX symlink is equivalent.
+      await symlink(kitRoot, linkPath, process.platform === "win32" ? "junction" : "dir")
+    } catch (error) {
+      t.skip(`cannot create a directory symlink here (${error.code}); CI covers this on Linux`)
+      return
+    }
+
+    const linkedScript = path.join(linkPath, "scripts/normalize-catalog.mjs")
+    await execFileAsync(process.execPath, [linkedScript, "--source", fixturePath, "--out", outPath])
+
+    const written = JSON.parse(await readFile(outPath, "utf8"))
+    assert.equal(written.models.length, OPENAI_COMPATIBLE_MODEL_IDS.length)
+    assert.deepEqual(written, normalizeCatalog(await readFixture()))
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true })
+  }
 })
 
 // ---------------------------------------------------------------------------
