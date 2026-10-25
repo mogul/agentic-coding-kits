@@ -2,6 +2,10 @@
 node_modules/
 tests/output/
 
+# CI-local pinned checkouts
+.patterns/
+.tmp/
+
 # OS noise
 .DS_Store
 Thumbs.db

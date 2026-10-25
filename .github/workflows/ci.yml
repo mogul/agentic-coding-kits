@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install kit test dependencies
+        working-directory: opencode-go-provider
+        run: npm ci
+
+      - name: Run kit tests
+        working-directory: opencode-go-provider
+        run: npm test
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validator dependencies
+        run: python -m pip install --disable-pip-version-check jsonschema==4.26.0 PyYAML==6.0.3
+
+      - name: Check out the pinned patterns release
+        uses: actions/checkout@v4
+        with:
+          repository: GSA-TTS/agentic-coding-patterns
+          # Pinned to the release this kit was authored and validated against.
+          # Update deliberately together with the validator.
+          ref: a290d5d80737fc739e7ec139da0eeaf438631631
+          path: .patterns
+
+      - name: Validate provider input with a patched credential binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp
+          python -c 'import json; source = ".patterns/integrations/isolation/schemas/provider-credential-bindings.json"; bindings = json.load(open(source, encoding="utf-8")); bindings["providers"]["opencode-go"] = "OPENCODE_GO_API_KEY"; json.dump(bindings, open(".tmp/provider-credential-bindings.json", "w", encoding="utf-8"), indent=2)'
+          python .patterns/scripts/validate_provider_input_contract.py \
+            --schema-dir .patterns/integrations/isolation/schemas \
+            --credential-bindings .tmp/provider-credential-bindings.json \
+            --bundle opencode-go-provider/provider-input.json
