@@ -1,0 +1,8 @@
+# Node authoring tooling
+node_modules/
+tests/output/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "acq-provider-input-bundle/v2",
+  "providerId": "opencode-go",
+  "factsPath": "provider-input/facts.json",
+  "normalizerPath": "scripts/normalize-catalog.mjs",
+  "snapshotPath": "files/home/opencode-go/model-catalog-snapshot.json",
+  "providerPath": "models/providers/opencode-go",
+  "credentialEnvNames": ["OPENCODE_GO_API_KEY"]
+}

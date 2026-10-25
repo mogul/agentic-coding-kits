@@ -1,0 +1,10 @@
+{
+  "name": "opencode-go-provider",
+  "private": true,
+  "type": "module",
+  "description": "acq mixin kit (hybrid/v1): harness-agnostic OpenCode Go provider input",
+  "scripts": {
+    "test": "node --test tests/normalize-catalog.test.mjs",
+    "sync:opencode-go-models": "node scripts/normalize-catalog.mjs"
+  }
+}

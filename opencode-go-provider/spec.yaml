@@ -1,0 +1,103 @@
+# spec.yaml — opencode-go-provider (a neutral acq mixin kit, hybrid/v1)
+#
+# Publishes OpenCode Go provider input for any OpenAI-compatible harness and
+# allow-lists its endpoint. The kit is deliberately harness-agnostic: it names
+# no agent and writes no agent configuration. It supplies provider facts plus a
+# vendored neutral model catalog, and a harness that speaks the OpenAI-compatible
+# protocol can consume both without learning anything OpenCode-specific.
+#
+# This is the NEUTRAL (backend-agnostic) form: acq's kit-translate layer maps
+# the declarative caps/files/commands below onto whichever backend is active
+# (sbx today; msb from Phase 2).
+#
+# What it does: allow-list the provider endpoint and publish provider metadata
+# for acq. It deliberately does NOT render any harness configuration; the
+# harness kit (e.g. an OpenCode kit) remains the sole writer of that harness's
+# global config.
+#
+# Secret: the OpenCode Go API key is NOT in this kit. A harness renderer reads
+# the injected OPENCODE_GO_API_KEY env var; acq supplies it at runtime via the
+# active backend's credential path (e.g. `acq secret set`). The real key never
+# enters the kit spec.
+#
+# Neutral model catalog: this kit ships a vendored snapshot of the OpenCode Go
+# models that are served over the OpenAI-compatible /openai/v1/chat/completions
+# endpoint, in the harness-neutral acq-neutral-model-catalog/v1 shape, plus the
+# host-side authoring tool (scripts/normalize-catalog.mjs) that regenerates it
+# from tests/fixtures/normalize-source.json. Both are model METADATA only.
+#
+# OpenCode Go also routes some models over Anthropic-, Google-, and
+# OpenAI-Responses-shaped endpoints. Those models are intentionally absent:
+# this kit declares apiProtocol `openai-compatible` only, and a catalog entry
+# for a model that cannot be reached over that protocol would be a routing bug.
+#
+# Trust: the snapshot is a convenience payload, not a trust anchor. It drops
+# under /home/agent, which the agent owns, so it is guest-writable. It carries
+# model metadata only (id, name, context window, max output tokens, cost) and no
+# host, baseUrl, modelsUrl, or credential field, so rewriting it cannot redirect
+# a credential or point a consumer at a different host. Consumers that need
+# TRUSTWORTHY facts must read the host-materialized provider generation, never
+# this file.
+schemaVersion: "hybrid/v1"
+kind: mixin
+name: opencode-go-provider
+displayName: OpenCode Go Provider
+description: >
+  Publishes OpenCode Go provider input and allow-lists its endpoint. Harness
+  kits render the backend-selected provider generation, so any OpenAI-compatible
+  harness can consume it.
+
+caps:
+  network:
+    allow:
+      # Exact host (default port 443). OpenCode Go is a custom endpoint, not a
+      # built-in backend service, so the kit must allow-list it explicitly.
+      - opencode.ai
+
+files:
+  # Vendored snapshot of the OpenAI-compatible OpenCode Go models in the neutral
+  # acq-neutral-model-catalog/v1 shape (see scripts/normalize-catalog.mjs, which
+  # regenerates it from tests/fixtures/normalize-source.json).
+  #
+  # NOT AUTHORITATIVE. This path is under /home/agent, which the agent OWNS, so
+  # forging it needs no privilege escalation at all. It is a convenience payload
+  # so a reader has a well-shaped example of the neutral catalog locally; it
+  # carries ONLY model metadata and no routing or credential fields, so
+  # rewriting it cannot redirect a credential or point a consumer at a different
+  # host. A consumer that needs TRUSTWORTHY provider facts -- host, baseUrl,
+  # modelsUrl, keyEnv -- must read them from a host-materialized, read-only
+  # source.
+  - path: /home/agent/opencode-go/model-catalog-snapshot.json
+    mode: "0644"
+    source: files/home/opencode-go/model-catalog-snapshot.json
+
+agentContext: |
+  ## OpenCode Go Provider
+
+  This kit is harness-agnostic. It publishes two things and nothing else:
+
+  1. Provider facts (`apiProtocol: openai-compatible`, host `opencode.ai`,
+     base URL `https://opencode.ai/inference/go/openai/v1`, models URL
+     `https://opencode.ai/inference/go/v1/models`, key env
+     `OPENCODE_GO_API_KEY`).
+  2. A neutral model catalog (`acq-neutral-model-catalog/v1`) containing only
+     the models OpenCode Go serves over its OpenAI-compatible
+     `/openai/v1/chat/completions` endpoint.
+
+  Any harness that speaks the OpenAI-compatible protocol can consume those
+  facts and that catalog; nothing here is specific to OpenCode the agent. Your
+  harness configuration is rendered by the harness kit selected alongside this
+  one, not by this kit.
+
+  Credentials are injected by `acq` and are not stored in this sandbox or in
+  this kit. Never write the API key into a file, a catalog, or this spec.
+
+  OpenCode Go also serves some models over Anthropic-, Google-, and
+  OpenAI-Responses-shaped endpoints. Those models are intentionally not in the
+  catalog: this provider input declares OpenAI-compatible chat completions only.
+
+# No backend shortcuts: every backend uses the same allow-list + file-drop +
+# projection mechanism for this kit.
+backend_shortcuts:
+  sbx: {}
+  msb: {}
