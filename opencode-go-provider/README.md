@@ -107,8 +107,11 @@ Recommendations are advisory: `primary` = `deepseek-v4-pro`, `small` =
 Once this repository is published, apply the kit by ref:
 
 ```bash
-acq apply --kit git+https://github.com/mogul/agentic-coding-kits.git#opencode-go-provider
+acq apply --kit "git+https://github.com/mogul/agentic-coding-kits.git#ref=<sha>&dir=opencode-go-provider"
 ```
+
+Pin an explicit commit (`#ref=<sha>`) in real use; `#ref=main` follows the
+branch.
 
 Store the API key through acq rather than in a file:
 

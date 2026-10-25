@@ -59,8 +59,11 @@ New kits follow the same directory contract and get a row in the table above.
 Apply a kit by repository ref, with the kit directory as the fragment:
 
 ```bash
-acq apply --kit git+https://github.com/mogul/agentic-coding-kits.git#opencode-go-provider
+acq apply --kit "git+https://github.com/mogul/agentic-coding-kits.git#ref=<sha>&dir=opencode-go-provider"
 ```
+
+Pin an explicit commit (`#ref=<sha>`) in real use; `#ref=main` follows the
+branch. Note the `&dir=` fragment: the kit lives in a subdirectory.
 
 Kits never contain secrets. Store provider credentials through `acq secret`, for
 example:
