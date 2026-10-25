@@ -4,7 +4,9 @@ Provider kits for [`acq`](https://github.com/GSA-TTS/agentic-coding-quickstart),
 the sandbox wrapper used by the GSA-TTS
 [agentic-coding-quickstart](https://github.com/GSA-TTS/agentic-coding-quickstart)
 project. Each kit describes a model provider once, in a harness-neutral form, so
-any coding agent that speaks the provider's protocol can consume it.
+a coding agent that speaks the provider's protocol — and honors any client
+expectations the service imposes, such as OpenCode Go's session header and
+user-agent — can consume it.
 
 This repository is separate from
 [agentic-coding-patterns](https://github.com/GSA-TTS/agentic-coding-patterns),
@@ -27,13 +29,22 @@ A kit is a self-contained `hybrid/v1` mixin with three layers:
    Metadata only: no routing or credential fields.
 
 A kit also ships a `spec.yaml` (network allow-list and any guest file drops), a
-host-side normalizer for regenerating the catalog, tests, and operator docs.
+normalizer for regenerating the catalog, tests, and operator docs.
 
 ## Kits
 
 | Kit | Provider | Protocol | Status |
 | --- | --- | --- | --- |
-| [`opencode-go-provider/`](opencode-go-provider/) | OpenCode Go | `openai-compatible` | Active |
+| [`opencode-go-provider/`](opencode-go-provider/) | OpenCode Go | `openai-compatible` | **Preview** — blocked on the acq credential-binding addition |
+
+**Preview status.** The OpenCode Go kit's provider facts, catalog, normalizer,
+and tests are complete and contract-validated. It cannot yet be materialized by
+`acq run`/`acq create` because the pinned Patterns
+`provider-credential-bindings.json` does not include
+`"opencode-go": "OPENCODE_GO_API_KEY"`. Until that consumer-side change lands,
+create-time provider-input validation fails with exactly
+`facts.keyEnv must match the host credential binding`. See the kit README's
+"Status" section.
 
 Each kit directory has its own README with provider-specific details and a
 TROUBLESHOOTING guide.
@@ -46,9 +57,9 @@ opencode-go-provider/         one complete provider kit
   spec.yaml                   hybrid/v1 mixin definition
   provider-input.json         acq-provider-input-bundle/v2 manifest
   provider-input/facts.json   acq-provider-facts/v1
-  scripts/                    host-side authoring tools (never shipped to guests)
+  scripts/                    authoring tools, host-materialized and read-only
   files/                      payloads dropped into the guest
-  tests/                      node:test suite and authoring fixtures
+  tests/                      node:test suites, fixtures, vendored schema
   docs/decisions/             design records
 ```
 
@@ -56,24 +67,39 @@ New kits follow the same directory contract and get a row in the table above.
 
 ## Using a kit
 
-Apply a kit by repository ref, with the kit directory as the fragment:
+Provider input is materialized **at sandbox create time only**. `acq kit apply`
+applies a kit's spec to an existing sandbox; it does not refresh provider input.
+Changing a kit therefore requires recreating the sandbox.
+
+The kit lives in a subdirectory and must be pinned to a full commit SHA. Never
+use `#ref=main`: a branch ref lets the host fetch different provider-controlled
+code at a different time.
 
 ```bash
-acq apply --kit "git+https://github.com/mogul/agentic-coding-kits.git#ref=<sha>&dir=opencode-go-provider"
+# acq only accepts kits from allow-listed source prefixes.
+export ACQ_EXTRA_KIT_SOURCES="github.com/mogul/"
+
+acq run opencode /path/to/project \
+  --kit <opencode-agent-kit> \
+  --kit "git+https://github.com/mogul/agentic-coding-kits.git#ref=<full-sha>&dir=opencode-go-provider"
 ```
 
-Pin an explicit commit (`#ref=<sha>`) in real use; `#ref=main` follows the
-branch. Note the `&dir=` fragment: the kit lives in a subdirectory.
+The same SHA-pinned ref works in `ACQ_EXTRA_KITS`; in acq builds that expose a
+dedicated provider-kit channel (`ACQ_PROVIDER_KITS`), use it there with the same
+SHA rule.
 
-Kits never contain secrets. Store provider credentials through `acq secret`, for
-example:
+Kits never contain secrets. Store provider credentials through `acq secret`.
+For a custom endpoint, both `--host` and `--env` are required — the mapping is
+not recorded otherwise:
 
 ```bash
-acq secret set opencode-go --host opencode.ai
+acq secret set -g opencode-go --host opencode.ai --env OPENCODE_GO_API_KEY
+# or, sandbox-scoped:
+acq secret set <sandbox> opencode-go --host opencode.ai --env OPENCODE_GO_API_KEY
 ```
 
-The active backend injects the credential under the name declared in the kit's
-facts (`OPENCODE_GO_API_KEY` for OpenCode Go).
+`--env` must equal the kit's `facts.keyEnv`. Injection happens only when that
+mapping was recorded, and the harness renderer reads the variable by name.
 
 ## Validating a kit
 
@@ -92,7 +118,8 @@ symlinked path components, an executable normalizer, host allow-listing, URL/hos
 agreement, and catalog validity (including recommendation cross-references). A
 kit also needs a matching entry in the consumer's
 `provider-credential-bindings.json`; that binding is owned by the consumer
-repository, not by this one.
+repository, not by this one. With a bindings file that includes the provider,
+the validator reports `validated 1 bundle(s)`; the repository CI runs that form.
 
 ## Adding a kit
 
@@ -100,7 +127,8 @@ repository, not by this one.
 2. Fill in facts and the bundle manifest. Keep `providerId`, `keyEnv`, and
    `providerPath` consistent.
 3. Curate the catalog to the models reachable over the declared protocol. Do not
-   list a model you cannot route.
+   list a model you cannot route, and do not derive the list from a raw models
+   endpoint.
 4. Add a pure, host-side normalizer plus a drift-gated test suite.
 5. Document pricing decisions (tiers, peak hours, free models) in the kit README.
 6. Run the tests and the contract validator before opening a pull request.
@@ -112,4 +140,8 @@ repository, not by this one.
 - A vendored snapshot dropped under `/home/agent` is agent-writable and is not a
   trust anchor. It carries metadata only, by design, so it cannot redirect a
   credential or a provider host.
-- Report security issues privately rather than in a public issue.
+- Report vulnerabilities as described in [`SECURITY.md`](SECURITY.md).
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
