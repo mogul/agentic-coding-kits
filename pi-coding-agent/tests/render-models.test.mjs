@@ -164,6 +164,41 @@ test("unknown facts or catalog fields fail closed like acq's schemas do", async 
   }
 })
 
+test("an empty providers directory is an authoritative empty set", async () => {
+  const directory = await tempDir()
+  try {
+    const root = path.join(directory, "provider-input")
+    await mkdir(path.join(root, "models", "providers"), { recursive: true })
+    const modelsFile = path.join(directory, "models.json")
+
+    assert.equal(await applyModelsProjection(root, modelsFile), "authoritative")
+    const document = JSON.parse(await readFile(modelsFile, "utf8"))
+    assert.deepEqual(document.providers, {})
+    await assertPiSchemaValid(document, "empty provider set")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("missing facts or snapshot input files fail closed", async () => {
+  const directory = await tempDir()
+  try {
+    const root = await makeRoot(directory)
+    const providerDir = path.join(root, "models", "providers", "opencode-go")
+    const modelsFile = path.join(directory, "models.json")
+    await writeFile(modelsFile, '{"sentinel":true}\n')
+
+    await rm(path.join(providerDir, "snapshot.json"))
+    await assert.rejects(
+      applyModelsProjection(root, modelsFile),
+      /snapshot for 'opencode-go' is missing/,
+    )
+    assert.equal(await readFile(modelsFile, "utf8"), '{"sentinel":true}\n')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("malformed facts or catalog fails closed without writing", async () => {
   const directory = await tempDir()
   try {
@@ -436,6 +471,10 @@ test("duplicate provider inputs, more than 500 models, and bad recommendations f
     await assert.rejects(
       renderedFor(path.join(directory, "dangling"), { catalog: { ...catalog, recommendations: { primary: "missing-model" } } }),
       /dangling primary recommendation/,
+    )
+    await assert.rejects(
+      renderedFor(path.join(directory, "recommendations-array"), { catalog: { ...catalog, recommendations: [] } }),
+      /recommendations for 'opencode-go' must be an object/,
     )
   } finally {
     await rm(directory, { recursive: true, force: true })
