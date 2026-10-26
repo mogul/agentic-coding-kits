@@ -1,0 +1,95 @@
+# spec.yaml — pi-coding-agent (a neutral acq mixin kit, hybrid/v1)
+#
+# AGENT-HARNESS KIT: installs earendil-works/pi (npm package
+# @earendil-works/pi-coding-agent) and renders acq's host-materialized provider
+# generation into pi's own ~/.pi/agent/models.json.
+#
+# WHY THIS KIT EXISTS: the older Pi kit installed the CLI but deliberately
+# deferred model-provider configuration, so `pi --list-models` showed nothing
+# from acq. acq's provider/agent split now gives a harness a read-only provider
+# generation at $ACQ_PROVIDER_INPUT_ROOT; this kit consumes it. The provider kit
+# owns facts and the neutral catalog. This kit owns the pi config and nothing
+# else.
+#
+# NO `agent:` BLOCK: acq does not know pi as a built-in agent, and this kit is
+# an opt-in --kit mixin. Do not add an agent block to satisfy a gate that does
+# not apply; declare one only if acq grows a pi-ready gate.
+#
+# NO published ports: pi is a TUI, not a web UI.
+#
+# INSTALL: npm registry only. Provider egress (e.g. opencode.ai) remains the
+# separate provider kit's job; this kit's allow-list is the install host alone.
+# The install step is fail-soft (an optional CLI must not break sandbox create);
+# the render step is fail-CLOSED on malformed provider input.
+schemaVersion: "hybrid/v1"
+kind: mixin
+name: pi-coding-agent
+displayName: pi (earendil-works terminal coding agent)
+description: >
+  Installs the pinned pi CLI (@earendil-works/pi-coding-agent) via npm and
+  renders acq's host-materialized provider generation into pi's models.json.
+  After startup, `pi --list-models` lists every model published by the provider
+  kit selected alongside this one. Opt-in mixin; no published ports.
+
+caps:
+  network:
+    allow:
+      # Install host only. npm metadata and tarballs both come from the public
+      # registry. Provider API egress is allow-listed by the provider kit.
+      - registry.npmjs.org
+
+files:
+  - path: /home/agent/pi-coding-agent-install.sh
+    mode: "0755"
+    source: files/home/pi-coding-agent-install.sh
+    description: Install the pinned pi CLI via npm (unprivileged, --ignore-scripts, per-user prefix); idempotent and fail-soft
+  - path: /home/agent/pi-coding-agent-render-models.mjs
+    mode: "0755"
+    source: files/home/pi-coding-agent-render-models.mjs
+    description: Validate the acq provider generation and write ~/.pi/agent/models.json (fail-closed)
+
+commands:
+  # STARTUP, as the agent user. No install phase: pi has no native-module build
+  # step, so a registry failure at create time has no reason to fail the sandbox.
+  # The hybrid/v1 `user` field is a numeric uid (pattern ^[0-9]+$); the backend
+  # runs startup steps as the agent user regardless of the literal value.
+  - phase: startup
+    user: "1000"
+    description: Install the pinned pi CLI via npm (unprivileged, idempotent, fail-soft)
+    command:
+      - sh
+      - /home/agent/pi-coding-agent-install.sh
+  # acq supplies ACQ_PROVIDER_INPUT_ROOT. The renderer defaults the provider root
+  # to $ACQ_PROVIDER_INPUT_ROOT (falling back to /var/lib/acq/provider-input) and
+  # the target to ~/.pi/agent/models.json (or $PI_CODING_AGENT_DIR/models.json).
+  # A missing root is a no-op: it does not erase an existing models.json.
+  - phase: startup
+    user: "1000"
+    description: Render the provider generation into pi's models.json
+    command:
+      - node
+      - /home/agent/pi-coding-agent-render-models.mjs
+
+agentContext: |
+  ## pi (earendil-works terminal coding agent)
+
+  This sandbox has **pi** (`@earendil-works/pi-coding-agent`) installed at
+  `~/.local/bin/pi`, which is on the default guest PATH. `pi` is a plain
+  terminal coding agent: run `pi` directly. There is no published port and no
+  supervisor.
+
+  Provider configuration is rendered at startup from acq's read-only provider
+  generation (`$ACQ_PROVIDER_INPUT_ROOT/models/providers/<providerId>/`). The
+  renderer writes `~/.pi/agent/models.json`; `pi --list-models` lists the models
+  that the provider kit selected alongside this kit publishes. Credentials are
+  not stored here: `models.json` references the provider's key by environment
+  variable name (for example `$OPENCODE_GO_API_KEY`), and acq injects the value
+  at runtime.
+
+  Only the `openai-compatible` neutral protocol is supported; it maps to pi's
+  `openai-completions` API. A provider kit that declares another protocol is a
+  deliberate hard failure, not a silently misconfigured provider.
+
+  `models.json` is kit-owned. The renderer rewrites it atomically on every
+  startup where a provider generation is available. Put personal overrides in a
+  separate pi config surface, or expect them to be replaced here.

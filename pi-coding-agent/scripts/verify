@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+#
+# verify — host-side validation for the pi-coding-agent acq mixin kit.
+#
+# Two layers:
+#
+#   1. OFFLINE GATE (always runs): spec presence, install-script syntax,
+#      renderer tests (node:test), and source-level guards for the behaviors
+#      that only matter in a live sandbox. If `acq kit validate` is available,
+#      the neutral hybrid/v1 spec is validated too.
+#
+#   2. LIVE END-TO-END (opt-in, RUN_ACQ=1): create a real sandbox with BOTH
+#      the opencode-go provider kit and this agent kit, wait for the startup
+#      install/render, then assert that `pi` is on the default PATH and that
+#      `pi --list-models` contains opencode-go model ids.
+#
+# Live requires an acq build that includes the provider/agent decoupling
+# (ACQ_PROVIDER_INPUT_ROOT, provider-input materialization, provider-credential
+# bindings). On an older acq the script reports a SKIP with that reason instead
+# of a false failure; the offline gate still runs.
+#
+# Usage (from anywhere):
+#   path/to/pi-coding-agent/scripts/verify          # offline gate only (default)
+#   RUN_ACQ=1 path/to/.../scripts/verify            # live, via acq/msb
+#   KEEP=1 RUN_ACQ=1 path/to/.../scripts/verify     # keep the sandbox to inspect
+
+set -uo pipefail
+
+KIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$KIT_DIR/.." && pwd)"
+PROVIDER_KIT="$REPO_ROOT/opencode-go-provider"
+INSTALL_SCRIPT="$KIT_DIR/files/home/pi-coding-agent-install.sh"
+RENDERER="$KIT_DIR/files/home/pi-coding-agent-render-models.mjs"
+SBX_NAME="pi-coding-agent-verify-$$"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/pi-coding-agent-verify.XXXXXX")"
+CREATE_LOG="$WORK/create.log"
+KEEP="${KEEP:-0}"
+RUN_ACQ="${RUN_ACQ:-0}"
+READY_TIMEOUT="${READY_TIMEOUT:-120}"
+POLL_INTERVAL="${POLL_INTERVAL:-2}"
+NODE_BIN="${NODE_BIN:-node}"
+
+pass=0
+fail=0
+ok()   { printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass+1)); }
+bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
+skip() { printf '  \033[33mSKIP\033[0m %s\n' "$1"; }
+info() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+cleanup() {
+  if [ "$KEEP" = "1" ]; then
+    printf '\nKEEP=1 set; leaving sandbox %s and %s in place.\n' "$SBX_NAME" "$WORK" >&2
+    return
+  fi
+  acq --backend msb rm "$SBX_NAME" >/dev/null 2>&1 || true
+  rm -rf "$WORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+info "0. Preconditions"
+if [ -f "$KIT_DIR/spec.yaml" ]; then
+  ok "kit spec.yaml present"
+else
+  bad "spec.yaml missing"
+  exit 1
+fi
+if [ -f "$INSTALL_SCRIPT" ]; then
+  ok "install script present"
+else
+  bad "files/home/pi-coding-agent-install.sh missing"
+  exit 1
+fi
+if [ -f "$RENDERER" ]; then
+  ok "models renderer present"
+else
+  bad "files/home/pi-coding-agent-render-models.mjs missing"
+  exit 1
+fi
+if [ -d "$PROVIDER_KIT" ]; then
+  ok "opencode-go-provider kit present (live pairing)"
+else
+  skip "opencode-go-provider kit not present; live pairing cannot be exercised"
+fi
+
+info "1. Install script syntax"
+if sh -n "$INSTALL_SCRIPT" 2>"$WORK/syntax.log"; then
+  ok "pi-coding-agent-install.sh parses as valid sh"
+else
+  bad "pi-coding-agent-install.sh has a syntax error"
+  sed 's/^/  | /' "$WORK/syntax.log" >&2
+fi
+
+info "2. Renderer tests (node:test)"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+  bad "$NODE_BIN is not on PATH (set NODE_BIN to a Node >= 22 binary)"
+elif [ ! -d "$KIT_DIR/node_modules" ]; then
+  if (cd "$KIT_DIR" && npm ci --ignore-scripts --no-audit --no-fund >"$WORK/npm-ci.log" 2>&1); then
+    if (cd "$KIT_DIR" && "$NODE_BIN" --test >"$WORK/test.log" 2>&1); then
+      ok "node --test passes (dependencies installed with npm ci)"
+    else
+      bad "node --test failed"
+      sed 's/^/  | /' "$WORK/test.log" >&2
+    fi
+  else
+    skip "node_modules absent and npm ci failed (offline? run 'npm ci' in the kit dir)"
+    sed 's/^/  | /' "$WORK/npm-ci.log" >&2
+  fi
+elif (cd "$KIT_DIR" && "$NODE_BIN" --test >"$WORK/test.log" 2>&1); then
+  ok "node --test passes"
+else
+  bad "node --test failed"
+  sed 's/^/  | /' "$WORK/test.log" >&2
+fi
+
+info "3. Source-level regression guards"
+if grep -Eq '^PI_VERSION="[0-9]+\.[0-9]+\.[0-9]+"$' "$INSTALL_SCRIPT"; then
+  ok "install script pins an exact reviewed pi version"
+else
+  bad "install script has no exact PI_VERSION pin"
+fi
+if grep -q -- '--ignore-scripts' "$INSTALL_SCRIPT" && grep -q -- '--prefix "\$NPM_PREFIX"' "$INSTALL_SCRIPT"; then
+  ok "install uses --ignore-scripts with an explicit per-user prefix"
+else
+  bad "install script lost --ignore-scripts or the explicit npm prefix"
+fi
+if grep -Fq 'NPM_PREFIX="${HOME}/.local"' "$INSTALL_SCRIPT"; then
+  ok "install prefix is \$HOME/.local (on the guest default PATH)"
+else
+  bad "install prefix is not \$HOME/.local"
+fi
+if grep -Eq "command -v pi >/dev/null 2>&1" "$INSTALL_SCRIPT"; then
+  ok "install is idempotent (skips npm when pi already resolves)"
+else
+  bad "install script is not idempotent"
+fi
+if grep -q 'process.versions.node' "$INSTALL_SCRIPT" && grep -q '22.19.0' "$INSTALL_SCRIPT"; then
+  ok "install gates on Node >= 22.19.0 (pi's engines.node)"
+else
+  bad "install script does not gate on pi's Node engine"
+fi
+if grep -q 'trap ' "$INSTALL_SCRIPT" && grep -q 'exit 0' "$INSTALL_SCRIPT"; then
+  ok "install is fail-soft (trap + exit 0; an optional CLI never fails the sandbox)"
+else
+  bad "install is not fail-soft"
+fi
+if grep -Fq 'ACQ_PROVIDER_INPUT_ROOT' "$RENDERER" && grep -Fq '/var/lib/acq/provider-input' "$RENDERER"; then
+  ok "renderer defaults to ACQ_PROVIDER_INPUT_ROOT with the acq fallback path"
+else
+  bad "renderer lost the acq provider-root default"
+fi
+if grep -Fq 'acq-provider-facts/v1' "$RENDERER" && grep -Fq 'acq-neutral-model-catalog/v1' "$RENDERER"; then
+  ok "renderer pins both neutral schema versions"
+else
+  bad "renderer does not pin the neutral schema versions"
+fi
+if grep -Fq '"openai-completions"' "$RENDERER" && grep -Fq 'authHeader: true' "$RENDERER" && grep -Fq 'maxTokens' "$RENDERER"; then
+  ok "renderer contains the neutral -> pi protocol/model mapping"
+else
+  bad "renderer lost part of the neutral -> pi mapping"
+fi
+if grep -Fq 'return "not-ready"' "$RENDERER"; then
+  ok "renderer distinguishes a missing provider root (not-ready) from an empty provider set"
+else
+  bad "renderer no longer leaves config untouched when the provider root is absent"
+fi
+if grep -Eq '^agent:' "$KIT_DIR/spec.yaml"; then
+  bad "spec declares an agent: block; pi is an opt-in --kit mixin, not an acq-built-in agent"
+else
+  ok "spec declares no agent: block"
+fi
+if grep -Fq 'registry.npmjs.org' "$KIT_DIR/spec.yaml"; then
+  allowed_hosts="$(awk '
+    /^[[:space:]]*allow:/ { inside=1; next }
+    inside && /^[[:space:]]*#/ { next }
+    inside && /^[[:space:]]*$/ { next }
+    inside && /^[[:space:]]*- / { print $2; next }
+    inside { exit }
+  ' "$KIT_DIR/spec.yaml")"
+  if [ "$allowed_hosts" = "registry.npmjs.org" ]; then
+    ok "network allow-list is the install host only (provider egress belongs to the provider kit)"
+  else
+    bad "spec network allow-list contains unexpected hosts: ${allowed_hosts:-<none>}"
+  fi
+else
+  bad "spec does not allow-list registry.npmjs.org"
+fi
+
+info "4. acq neutral-spec validation (optional)"
+if command -v acq >/dev/null 2>&1 && acq kit validate --help >/dev/null 2>&1; then
+  if acq kit validate "$KIT_DIR" >"$WORK/kit-validate.log" 2>&1; then
+    ok "acq kit validate accepts the hybrid/v1 spec"
+  else
+    bad "acq kit validate rejected the spec"
+    sed 's/^/  | /' "$WORK/kit-validate.log" >&2
+  fi
+else
+  skip "acq kit validate not available"
+fi
+
+if [ "$RUN_ACQ" != "1" ]; then
+  info "5. Live sandbox check"
+  skip "RUN_ACQ=1 not set — skipped live acq/msb verification"
+  info "Summary"
+  printf '  %d passed, %d failed\n' "$pass" "$fail"
+  [ "$fail" -eq 0 ] && printf '  \033[32mOffline gate passed.\033[0m\n' || printf '  \033[31mOffline gate failed — see above.\033[0m\n'
+  exit "$([ "$fail" -eq 0 ] && echo 0 || echo 1)"
+fi
+
+info "5. Live preconditions"
+if ! command -v acq >/dev/null 2>&1; then
+  bad "acq not on PATH"
+  exit 1
+fi
+ok "acq on PATH"
+
+# The live contract depends on acq's provider/agent decoupling. Detect it
+# explicitly: an acq without the provider-credential surface cannot materialize
+# provider input, so a create attempt would fail for a reason unrelated to this
+# kit. Report SKIP, not a false FAIL.
+if ! acq --help 2>&1 | grep -q 'provider-credential'; then
+  skip "installed acq predates provider/agent decoupling (no provider-credential command)"
+  skip "live verification is pending the unmerged acq PR 611; offline gate still authoritative"
+  info "Summary"
+  printf '  %d passed, %d failed\n' "$pass" "$fail"
+  [ "$fail" -eq 0 ] && printf '  \033[32mOffline gate passed; live checks skipped.\033[0m\n' || printf '  \033[31mOffline gate failed — see above.\033[0m\n'
+  exit "$([ "$fail" -eq 0 ] && echo 0 || echo 1)"
+fi
+ok "acq exposes provider-credential (decoupled provider input available)"
+
+if ! acq backend list 2>/dev/null | grep -q 'msb'; then
+  bad "msb backend not detected"
+  exit 1
+fi
+ok "msb backend detected"
+
+info "6. Register the provider credential binding (name only; no secret value)"
+# The binding is metadata: providerId -> credential env name. It records where
+# the runtime key comes from; the key value is set separately by the operator.
+if acq provider-credential set opencode-go OPENCODE_GO_API_KEY --host opencode.ai </dev/null >"$WORK/credential.log" 2>&1; then
+  ok "provider-credential binding registered for opencode-go"
+else
+  skip "provider-credential binding not registered (may already exist or need operator setup)"
+  sed 's/^/  | /' "$WORK/credential.log" >&2
+fi
+
+info "7. Create sandbox with provider kit + agent kit"
+printf '  creating %s via acq/msb...\n' "$SBX_NAME"
+if acq --backend msb create --name "$SBX_NAME" \
+    --kit "$PROVIDER_KIT" \
+    --kit "$KIT_DIR" \
+    opencode "$WORK" </dev/null >"$CREATE_LOG" 2>&1; then
+  ok "sandbox created with both kits"
+else
+  bad "acq create failed"
+  sed 's/^/  | /' "$CREATE_LOG" >&2
+  exit 1
+fi
+
+in_sbx() {
+  acq --backend msb exec "$SBX_NAME" -- sh -c "$1" </dev/null 2>/dev/null || true
+}
+
+info "8. Wait for startup install/render (up to ${READY_TIMEOUT}s)"
+deadline=$(( $(date +%s) + READY_TIMEOUT ))
+while :; do
+  if [ -n "$(in_sbx 'command -v pi')" ]; then
+    break
+  fi
+  [ "$(date +%s)" -ge "$deadline" ] && break
+  sleep "$POLL_INTERVAL"
+done
+
+info "9. pi is on the default guest PATH (bare, unmodified sh -c)"
+pi_path="$(in_sbx 'command -v pi')"
+if [ -n "$pi_path" ]; then
+  ok "pi resolves on the default PATH ($pi_path)"
+else
+  bad "pi not found on the default PATH after ${READY_TIMEOUT}s (install.log follows)"
+  in_sbx 'tail -n 40 "$HOME/.local/state/pi-coding-agent/install.log" 2>/dev/null || true' | sed 's/^/  | /'
+fi
+
+info "9b. Credential environment is injected into the exec session"
+if [ "$(in_sbx 'test -n "$OPENCODE_GO_API_KEY" && echo yes')" = "yes" ]; then
+  ok "OPENCODE_GO_API_KEY is present in the sandbox exec environment"
+else
+  bad "OPENCODE_GO_API_KEY is not injected; pi will report no available models even with a correct models.json"
+fi
+
+info "10. Renderer produced models.json for the selected provider generation"
+models_json="$(in_sbx 'cat "$HOME/.pi/agent/models.json" 2>/dev/null')"
+if printf '%s' "$models_json" | grep -q '"opencode-go"' \
+    && printf '%s' "$models_json" | grep -q 'https://opencode.ai/inference/go/openai/v1' \
+    && printf '%s' "$models_json" | grep -q '"\$OPENCODE_GO_API_KEY"'; then
+  ok "models.json carries the opencode-go provider, base URL, and env-var credential reference"
+else
+  bad "models.json is missing the rendered opencode-go provider"
+  printf '%s\n' "$models_json" | sed 's/^/  | /' >&2
+fi
+
+info "11. pi --list-models lists the provider's neutral catalog"
+list_out="$(in_sbx 'pi --list-models 2>&1')"
+printf '%s\n' "$list_out" | sed 's/^/  | /'
+missing=0
+for model_id in glm-5.3-flash deepseek-v4-pro kimi-k3.1-pro; do
+  if printf '%s' "$list_out" | grep -q -- "$model_id"; then
+    ok "pi --list-models contains $model_id"
+  else
+    bad "pi --list-models does not contain $model_id"
+    missing=$((missing+1))
+  fi
+done
+
+info "Summary"
+printf '  %d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ] && printf '  \033[32mAll checks passed.\033[0m\n' || printf '  \033[31mSome checks failed — see notes above.\033[0m\n'
+
+[ "$fail" -eq 0 ]

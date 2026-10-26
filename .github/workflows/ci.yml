@@ -28,6 +28,17 @@ jobs:
         working-directory: opencode-go-provider
         run: npm test
 
+      - name: Install pi agent-kit test dependencies
+        working-directory: pi-coding-agent
+        run: npm ci
+
+      - name: Run pi agent-kit tests
+        working-directory: pi-coding-agent
+        run: npm test
+
+      - name: Run pi agent-kit offline verification
+        run: bash pi-coding-agent/scripts/verify
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
