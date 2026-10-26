@@ -23,7 +23,7 @@
 // A missing provider root is NOT an empty provider set: it means the acq
 // generation is not ready yet, so the existing models.json is left untouched.
 
-import { mkdir, open, readdir, readFile, rename, rm } from "node:fs/promises"
+import { lstat, mkdir, open, readdir, readFile, rename, rm } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 import process from "node:process"
@@ -34,9 +34,17 @@ const CATALOG_SCHEMA = "acq-neutral-model-catalog/v1"
 const MODELS_SCHEMA_URL = "https://pi.dev/schemas/models.schema.json"
 
 // Mirrors acq-provider-facts.schema.json / acq-neutral-model-catalog.schema.json.
-const PROVIDER_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/
-const KEY_ENV = /^[A-Z][A-Z0-9_]*$/
-const HOSTNAME = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)$/
+//
+// The schemas end their patterns with (?![\\s\\S]) rather than $ because
+// ECMAScript's $ matches immediately before a trailing newline. A provider id
+// or credential name with a trailing newline is not schema-valid and must not
+// be accepted here. Keep the same full-match assertion.
+const PROVIDER_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?(?![\s\S])/
+const KEY_ENV = /^[A-Z][A-Z0-9_]*(?![\s\S])/
+const HOSTNAME = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(?![\s\S])/
+// The neutral catalog disallows ASCII control characters and the Unicode
+// line/paragraph separators in model ids, names, and recommendation values.
+const SCHEMA_TEXT = /^[^\u0000-\u001F\u007F\u2028\u2029]+(?![\s\S])/
 
 // Harness-owned protocol adapters. The neutral protocol is a bounded value;
 // adding one requires a deliberate renderer change, not a provider edit.
@@ -44,10 +52,12 @@ const API_PROTOCOLS = Object.freeze({
   "openai-compatible": "openai-completions",
 })
 
-const COST_FIELDS = Object.freeze(["input", "output", "cacheRead", "cacheWrite"])
-const FACTS_FIELDS = new Set(["schemaVersion", "providerId", "apiProtocol", "host", "baseUrl", "modelsUrl", "keyEnv"])
-const CATALOG_FIELDS = new Set(["schemaVersion", "providerId", "models", "recommendations"])
-const MODEL_FIELDS = new Set(["id", "name", "contextWindow", "maxOutputTokens", "cost", "costAbove200kContext"])
+export const COST_FIELDS = Object.freeze(["input", "output", "cacheRead", "cacheWrite"])
+export const FACTS_FIELDS = new Set(["schemaVersion", "providerId", "apiProtocol", "host", "baseUrl", "modelsUrl", "keyEnv"])
+export const CATALOG_FIELDS = new Set(["schemaVersion", "providerId", "models", "recommendations"])
+export const MODEL_FIELDS = new Set(["id", "name", "contextWindow", "maxOutputTokens", "cost", "costAbove200kContext"])
+const COST_FIELD_SET = new Set(COST_FIELDS)
+const RECOMMENDATION_ROLES = new Set(["primary", "small", "compaction", "summary", "title"])
 
 function object(value, label) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -56,9 +66,19 @@ function object(value, label) {
   return value
 }
 
-function string(value, label) {
+function string(value, label, maxLength) {
   if (typeof value !== "string" || value.length === 0) throw new Error(`${label} must be a non-empty string`)
+  // JSON Schema maxLength counts Unicode code points, not UTF-16 code units.
+  if (maxLength !== undefined && [...value].length > maxLength) {
+    throw new Error(`${label} exceeds ${maxLength} characters`)
+  }
   return value
+}
+
+function schemaText(value, label, maxLength) {
+  const text = string(value, label, maxLength)
+  if (!SCHEMA_TEXT.test(text)) throw new Error(`${label} contains disallowed control characters`)
+  return text
 }
 
 function positiveInteger(value, label) {
@@ -72,10 +92,18 @@ function rejectUnknownFields(value, allowed, label) {
   }
 }
 
+// Code-unit ordering, not localeCompare: output must be identical on every
+// host and locale, not merely "sorted" for the current process locale.
+function compareNames(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 function httpsUrl(value, label) {
+  const text = string(value, label, 2048)
+  if (!text.startsWith("https://")) throw new Error(`${label} must start with https://`)
   let url
   try {
-    url = new URL(string(value, label))
+    url = new URL(text)
   } catch {
     throw new Error(`${label} must be a URL`)
   }
@@ -88,7 +116,7 @@ function httpsUrl(value, label) {
 
 function cost(value, label) {
   const source = object(value, label)
-  rejectUnknownFields(source, new Set(COST_FIELDS), label)
+  rejectUnknownFields(source, COST_FIELD_SET, label)
   const result = {}
   for (const field of COST_FIELDS) {
     const amount = source[field] === undefined ? 0 : source[field]
@@ -103,11 +131,11 @@ function cost(value, label) {
 function renderModel(model, providerId) {
   const source = object(model, `model for '${providerId}'`)
   rejectUnknownFields(source, MODEL_FIELDS, `model for '${providerId}'`)
-  const id = string(source.id, `model id for '${providerId}'`)
+  const id = schemaText(source.id, `model id for '${providerId}'`, 128)
   const reference = `${providerId}/${id}`
   const rendered = {
     id,
-    name: source.name === undefined ? id : string(source.name, `model name for '${reference}'`),
+    name: source.name === undefined ? id : schemaText(source.name, `model name for '${reference}'`, 256),
   }
   if (source.contextWindow !== undefined) {
     rendered.contextWindow = positiveInteger(source.contextWindow, `context window for '${reference}'`)
@@ -117,8 +145,10 @@ function renderModel(model, providerId) {
   }
   if (source.cost !== undefined) rendered.cost = cost(source.cost, `cost for '${reference}'`)
   if (source.costAbove200kContext !== undefined) {
-    // pi expresses neutral tiered pricing as a request-wide tier. The neutral
-    // schema's tier is fixed at "above 200k context".
+    // The neutral tier is "input above 200k tokens". pi's only tiered-pricing
+    // shape is a request-wide tier keyed by input tokens, so this is the same
+    // threshold and the closest faithful representation. pi applies the
+    // highest matching tier to the whole request.
     const tier = cost(source.costAbove200kContext, `tiered cost for '${reference}'`)
     rendered.cost = {
       ...(rendered.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
@@ -132,12 +162,12 @@ function validateRecommendations(value, providerId, modelIds) {
   if (value === undefined) return
   const recommendations = object(value, `recommendations for '${providerId}'`)
   for (const [role, modelId] of Object.entries(recommendations)) {
-    if (!["primary", "small", "compaction", "summary", "title"].includes(role)) {
+    if (!RECOMMENDATION_ROLES.has(role)) {
       throw new Error(`unsupported recommendation role '${role}' for '${providerId}'`)
     }
-    string(modelId, `${role} recommendation for '${providerId}'`)
-    if (!modelIds.has(modelId)) {
-      throw new Error(`dangling ${role} recommendation '${providerId}/${modelId}'`)
+    const reference = schemaText(modelId, `${role} recommendation for '${providerId}'`, 128)
+    if (!modelIds.has(reference)) {
+      throw new Error(`dangling ${role} recommendation '${providerId}/${reference}'`)
     }
   }
 }
@@ -164,18 +194,18 @@ function renderProvider(input) {
   const piApi = API_PROTOCOLS[apiProtocol]
   if (piApi === undefined) throw new Error(`unsupported apiProtocol '${apiProtocol}' for '${providerId}'`)
 
-  const host = string(facts.host, `host for '${providerId}'`).toLowerCase()
+  const host = string(facts.host, `host for '${providerId}'`, 253).toLowerCase()
   if (!HOSTNAME.test(host)) throw new Error(`invalid host for '${providerId}'`)
-  const baseUrl = string(facts.baseUrl, `baseUrl for '${providerId}'`)
+  const baseUrl = string(facts.baseUrl, `baseUrl for '${providerId}'`, 2048)
   if (httpsUrl(baseUrl, `baseUrl for '${providerId}'`).hostname.toLowerCase() !== host) {
     throw new Error(`baseUrl host does not match '${providerId}'`)
   }
-  const modelsUrl = string(facts.modelsUrl, `modelsUrl for '${providerId}'`)
+  const modelsUrl = string(facts.modelsUrl, `modelsUrl for '${providerId}'`, 2048)
   if (httpsUrl(modelsUrl, `modelsUrl for '${providerId}'`).hostname.toLowerCase() !== host) {
     throw new Error(`modelsUrl host does not match '${providerId}'`)
   }
 
-  const keyEnv = string(facts.keyEnv, `keyEnv for '${providerId}'`)
+  const keyEnv = string(facts.keyEnv, `keyEnv for '${providerId}'`, 128)
   if (!KEY_ENV.test(keyEnv)) throw new Error(`invalid keyEnv for '${providerId}'`)
 
   if (!Array.isArray(catalog.models)) throw new Error(`models for '${providerId}' must be an array`)
@@ -203,13 +233,25 @@ function renderProvider(input) {
 export function renderModels(inputs) {
   const providers = Object.create(null)
   const seen = new Set()
-  for (const input of [...inputs].sort((left, right) => left.directory.localeCompare(right.directory))) {
+  for (const input of [...inputs].sort((left, right) => compareNames(left.directory, right.directory))) {
     const [providerId, provider] = renderProvider(input)
     if (seen.has(providerId)) throw new Error(`duplicate provider '${providerId}'`)
     seen.add(providerId)
     providers[providerId] = provider
   }
   return { $schema: MODELS_SCHEMA_URL, providers }
+}
+
+async function regularFile(filename, label) {
+  let info
+  try {
+    info = await lstat(filename)
+  } catch (error) {
+    if (error?.code === "ENOENT") throw new Error(`${label} is missing`)
+    throw error
+  }
+  if (info.isSymbolicLink()) throw new Error(`${label} must not be a symlink`)
+  if (!info.isFile()) throw new Error(`${label} must be a regular file`)
 }
 
 export async function loadProviderInputs(providerRoot) {
@@ -223,15 +265,25 @@ export async function loadProviderInputs(providerRoot) {
   }
 
   const inputs = []
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareNames(left.name, right.name))) {
     if (entry.isSymbolicLink()) throw new Error(`provider directory '${entry.name}' must not be a symlink`)
     if (!entry.isDirectory()) continue
     if (!PROVIDER_ID.test(entry.name)) throw new Error(`invalid provider directory '${entry.name}'`)
 
     const directory = path.join(current, entry.name)
+    const factsPath = path.join(directory, "facts.json")
+    const catalogPath = path.join(directory, "snapshot.json")
+    // Reject symlinked inputs: the provider generation is host-materialized,
+    // so a symlink here is either a broken projection or an attempt to make the
+    // renderer read an unrelated host file. lstat is a defense-in-depth check;
+    // acq's provider validator also rejects symlinked artifact components.
+    await Promise.all([
+      regularFile(factsPath, `facts for '${entry.name}'`),
+      regularFile(catalogPath, `snapshot for '${entry.name}'`),
+    ])
     const [factsText, catalogText] = await Promise.all([
-      readFile(path.join(directory, "facts.json"), "utf8"),
-      readFile(path.join(directory, "snapshot.json"), "utf8"),
+      readFile(factsPath, "utf8"),
+      readFile(catalogPath, "utf8"),
     ])
     let facts
     let catalog
