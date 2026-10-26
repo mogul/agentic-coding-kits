@@ -44,7 +44,7 @@ credentials remain acq-managed.
 
 - Allow-lists `opencode.ai` through `caps.network.allow`.
 - Supplies facts, normalizer, and snapshot paths through `provider-input.json`.
-- Drops a neutral catalog snapshot at
+- Drops a neutral catalog snapshot (19 models) at
   `/home/agent/opencode-go/model-catalog-snapshot.json` (mode `0644`).
 - Does **not** install harness-specific files, write global config, or run a
   startup writer. It also declares no `environment:` block; see
@@ -53,10 +53,12 @@ credentials remain acq-managed.
 ## Protocol coverage and the allowlist
 
 OpenCode Go routes different models over different wire protocols. This kit
-declares `openai-compatible` only, so the catalog contains exactly the **18
-entries in the Go docs endpoint table that use
-`https://opencode.ai/inference/go/openai/v1/chat/completions`** (17 paid models
-plus Beam Free):
+declares `openai-compatible` only, so the catalog contains **19
+OpenAI-compatible models**: the 18 entries in the Go docs endpoint table that use
+`https://opencode.ai/inference/go/openai/v1/chat/completions` (17 paid models
+plus Beam Free), plus one active free/experimental alias that OpenCode's
+published model metadata identifies as OpenAI-compatible but that is absent from
+that table:
 
 | Model | Model ID |
 | --- | --- |
@@ -78,6 +80,11 @@ plus Beam Free):
 | Hy3 | `hy3` |
 | Step 5 Preview | `step-5-preview` |
 | Beam Free | `beam-free` |
+| Iceman Contributor Free | `iceman-contributor-free` |
+
+`iceman-contributor-free` is the only free/experimental alias included; it is
+currently marked active upstream. Five other aliases that models.dev marks
+deprecated are intentionally excluded (see below).
 
 `scripts/normalize-catalog.mjs` exports this list as
 `OPENAI_COMPATIBLE_MODEL_IDS`, the single source of truth shared by the
@@ -87,22 +94,25 @@ free variants, stealth/experimental models, and legacy models. Any id outside
 the allowlist is a hard failure, so a raw capture cannot silently publish an
 unroutable model.
 
-Excluded ids, and why:
+Still-excluded ids, and why:
 
 - **Other protocols.** `grok-4.7`, `gpt-6-luna`, `gpt-5.6-luna`,
   `muse-spark-1.2-contributor`, and `muse-spark-1.3-contributor` use the OpenAI
   Responses API. `claude-haiku-5-5`, `minimax-m3`, `qwen3.8-max`, `qwen3.8-flash`,
   and `qwen3.7-plus` use the Anthropic Messages API. `gemini-4-argon` uses the
   Google Generative AI API. This kit cannot route them.
-- **Free variants.** Ids ending in `-free` (for example `glm-5.3-flash-free`,
-  `kimi-k2.5-free`, `longcat-2.5-preview-free`, `minimax-m3.1-flash-free`,
-  `step-5-preview-free`) are promotional or limited-region aliases that are not
-  in the documented endpoint table. Beam Free is the one free model the docs
-  table does list, so it is included.
-- **Stealth / experimental.** `space-bunny`, `cat-jam-free`,
-  `iceman-contributor-free`, `omen-alpha`, `big-pickle`, and similar stealth
-  aliases are unannounced, may appear or disappear without notice, and are not in
-  the documented table.
+- **Deprecated free/experimental aliases.** `step-5-preview-free`,
+  `minimax-m3.1-flash-free`, `longcat-2.5-preview-free`, `space-bunny`, and
+  `cat-jam-free` are marked deprecated upstream. They are intentionally excluded
+  even though models.dev still publishes them, because a deprecated alias is not
+  a supported target and may disappear or already be unavailable.
+- **Other `-free` aliases.** Ids such as `glm-5.3-flash-free` and
+  `kimi-k2.5-free` belong to the separate `opencode` provider entry in
+  models.dev, not to OpenCode Go's OpenAI-compatible set, so they are not
+  included.
+- **Remaining stealth ids.** `omen-alpha`, `big-pickle`, and similar stealth
+  aliases are not in the documented table and are not published as
+  OpenAI-compatible Go models; they may appear or disappear without notice.
 - **Legacy / undocumented.** `glm-5.1`, `kimi-k2.6`, `minimax-m2.5`,
   `minimax-m2.7`, `qwen3.6-plus`, `qwen3.7-max`, and `grok-4.6` are older or
   undocumented ids that the docs no longer list as current Go models.
@@ -149,10 +159,13 @@ All `cost` values are **USD per 1M tokens**, the neutral schema's unit.
 - **Cache write.** `cacheWrite` is present only where OpenCode Go publishes a
   cache-write price (Kimi K3.1 Pro and Kimi K3). Elsewhere the docs show `-`,
   so the field is omitted rather than encoded as a misleading `0`.
-- **Free models.** Beam Free is recorded as explicit `0` input/output/cache-read
-  prices, not as a missing `cost`.
+- **Free and experimental models.** Beam Free and Iceman Contributor Free are
+  recorded as explicit `0` input/output/cache-read prices, not as a missing
+  `cost`. Deprecated free/experimental aliases are not included; see the
+  exclusion list above.
 - Prices and model availability change upstream. See
-  [opencode.ai/docs/go](https://opencode.ai/docs/go) for the current table.
+  [opencode.ai/docs/go](https://opencode.ai/docs/go) for the current table and
+  [models.dev](https://models.dev/api.json) for provider-scoped metadata.
 
 Recommendations are advisory: `primary` = `deepseek-v4-pro` (region permitting —
 see the caveat above), `small` = `glm-5.3-flash`. Downstream kits make the final

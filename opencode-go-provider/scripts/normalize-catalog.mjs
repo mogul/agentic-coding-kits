@@ -12,18 +12,19 @@
 //
 // The LIVE endpoint returns ids only (plus object/created/owned_by) and includes
 // models served over OTHER protocols plus free/experimental/legacy ids. Pricing
-// and limits are published separately at https://opencode.ai/docs/go, so an
-// authoring input is an annotated, curated capture: each record MAY also carry
-// `name`, `contextWindow`, `maxOutputTokens`, and `cost` in the same field names
-// the neutral schema uses. This script copies those fields verbatim and drops
-// the endpoint-envelope fields (`object`, `created`, `owned_by`, `capturedAt`,
-// `note`), which the neutral v1 shape does not model.
+// and limits are published separately (https://opencode.ai/docs/go and
+// https://models.dev/api.json), so an authoring input is an annotated, curated
+// capture: each record MAY also carry `name`, `contextWindow`,
+// `maxOutputTokens`, and `cost` in the same field names the neutral schema uses.
+// This script copies those fields verbatim and drops the endpoint-envelope
+// fields (`object`, `created`, `owned_by`, `capturedAt`, `note`), which the
+// neutral v1 shape does not model.
 //
 // WARNING: never feed a raw `/v1/models` response to this tool. That response
-// lists models this kit cannot route (Anthropic-, Google-, and
-// OpenAI-Responses-shaped endpoints) and free/experimental ids that are not in
-// the documented endpoint table. Every id is checked against
-// OPENAI_COMPATIBLE_MODEL_IDS below and an unknown id is a hard failure.
+// mixes protocols this kit cannot route (Anthropic-, Google-, and
+// OpenAI-Responses-shaped endpoints) with free and legacy ids beyond the
+// deliberate set below. Every id is checked against
+// OPENAI_COMPATIBLE_MODEL_IDS and an unknown id is a hard failure.
 //
 // This is a HOST-SIDE authoring tool (it lives under scripts/, not files/). acq
 // materializes it with the rest of the provider bundle and mounts that tree
@@ -91,14 +92,17 @@ const RECOMMENDATION_ROLES = ["primary", "small", "compaction", "summary", "titl
 const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"]
 
 // Single source of truth for protocol coverage. These are the ids OpenCode Go
-// serves over /openai/v1/chat/completions that appear in the docs endpoint
-// table. Tests import this constant, so the fixture, the normalizer, and the
-// shipped snapshot cannot disagree about what "OpenAI-compatible" means here.
+// serves over /openai/v1/chat/completions: the 18 entries in the docs endpoint
+// table, plus one active free/experimental alias (`iceman-contributor-free`)
+// that OpenCode's published model metadata identifies as OpenAI-compatible but
+// that is absent from that table. Deprecated aliases are intentionally excluded.
+// Tests import this constant, so the fixture, the normalizer, and the shipped
+// snapshot cannot disagree about what "OpenAI-compatible" means.
 //
 // This list is deliberately explicit rather than derived from the live models
-// endpoint: the endpoint mixes protocols and includes free, experimental, and
-// legacy ids. A new upstream model fails normalization until someone confirms
-// its protocol and adds it here.
+// endpoint: the endpoint mixes protocols and includes ids beyond this set. A new
+// upstream model fails normalization until someone confirms its protocol and
+// adds it here.
 export const OPENAI_COMPATIBLE_MODEL_IDS = Object.freeze([
   "glm-5.3-flash",
   "glm-5.3",
@@ -118,6 +122,7 @@ export const OPENAI_COMPATIBLE_MODEL_IDS = Object.freeze([
   "hy3",
   "step-5-preview",
   "beam-free",
+  "iceman-contributor-free",
 ])
 
 function isPlainObject(value) {

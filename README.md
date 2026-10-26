@@ -46,6 +46,10 @@ create-time provider-input validation fails with exactly
 `facts.keyEnv must match the host credential binding`. See the kit README's
 "Status" section.
 
+The OpenCode Go catalog currently exposes **19 OpenAI-compatible models**: the 18
+models in the Go docs endpoint table plus one active free/experimental alias
+(`iceman-contributor-free`). Five deprecated aliases are intentionally excluded.
+
 Each kit directory has its own README with provider-specific details and a
 TROUBLESHOOTING guide.
 

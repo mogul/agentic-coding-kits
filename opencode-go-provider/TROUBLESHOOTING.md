@@ -141,7 +141,8 @@ OpenAI-compatible allowlist".
 
 **Cause:** the snapshot is vendored. It only changes when the fixture is updated
 and the normalizer is re-run. The live `/v1/models` response is **not** a valid
-authoring input: it mixes protocols and includes free, stealth, and legacy ids.
+authoring input: it mixes protocols and carries more free, stealth, and legacy
+ids than this kit's allowlist.
 
 **Fix:** from the kit directory, curate `tests/fixtures/normalize-source.json`
 against the Go docs endpoint table and pricing, then:

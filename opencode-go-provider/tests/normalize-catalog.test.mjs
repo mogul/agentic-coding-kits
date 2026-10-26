@@ -19,7 +19,8 @@ test("normalizeCatalog emits the acq-neutral-model-catalog/v1 envelope", async (
 
   assert.equal(neutral.schemaVersion, "acq-neutral-model-catalog/v1")
   assert.equal(neutral.providerId, "opencode-go")
-  assert.equal(neutral.models.length, 18)
+  assert.equal(neutral.models.length, OPENAI_COMPATIBLE_MODEL_IDS.length)
+  assert.equal(neutral.models.length, 19)
 })
 
 test("normalizeCatalog covers exactly the OpenAI-compatible OpenCode Go models", async () => {
@@ -29,6 +30,33 @@ test("normalizeCatalog covers exactly the OpenAI-compatible OpenCode Go models",
     models.map((model) => model.id),
     OPENAI_COMPATIBLE_MODEL_IDS,
   )
+})
+
+test("normalizeCatalog accepts the single active free/experimental OpenAI-compatible id", async () => {
+  const { models } = normalizeCatalog(await readFixture())
+  const iceman = models.find((entry) => entry.id === "iceman-contributor-free")
+
+  assert.ok(iceman, "iceman-contributor-free should be present")
+  assert.equal(iceman.name, "Iceman Contributor Free")
+  assert.equal(iceman.contextWindow, 262144)
+  assert.equal(iceman.maxOutputTokens, 131072)
+  assert.deepEqual(iceman.cost, { input: 0, output: 0, cacheRead: 0 })
+
+  // Deprecated aliases are intentionally excluded even though models.dev still
+  // publishes them: they are not part of this kit's supported set.
+  for (const id of [
+    "step-5-preview-free",
+    "minimax-m3.1-flash-free",
+    "longcat-2.5-preview-free",
+    "space-bunny",
+    "cat-jam-free",
+  ]) {
+    assert.throws(
+      () => normalizeCatalog({ data: [{ id }] }),
+      /is not in the OpenAI-compatible allowlist/,
+      `${id} should be rejected as a deprecated alias`,
+    )
+  }
 })
 
 test("normalizeCatalog reuses the neutral field names verbatim and drops endpoint-envelope fields", async () => {
@@ -117,7 +145,7 @@ test("normalizeCatalog rejects ids outside the OpenAI-compatible allowlist", () 
   // These ids exist on the live models endpoint but are served over a different
   // protocol, are stealth/experimental, or are legacy. A raw /v1/models response
   // must fail rather than publish unroutable models.
-  for (const id of ["gpt-6-luna", "gemini-4-argon", "space-bunny", "cat-jam-free", "glm-5.1"]) {
+  for (const id of ["gpt-6-luna", "gemini-4-argon", "omen-alpha", "glm-5.1"]) {
     assert.throws(
       () => normalizeCatalog({ data: [{ id }] }),
       /is not in the OpenAI-compatible allowlist/,
@@ -261,7 +289,8 @@ test("shipped snapshot exactly matches normalizeCatalog(fixture)", async () => {
     "normalizer produced no models[] from the fixture -- gate cannot pass",
   )
 
-  assert.equal(snapshot.models.length, 18)
+  assert.equal(snapshot.models.length, 19)
+  assert.equal(snapshot.models.length, OPENAI_COMPATIBLE_MODEL_IDS.length)
   assert.deepEqual(snapshot, regenerated)
 })
 

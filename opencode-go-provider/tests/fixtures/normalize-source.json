@@ -256,6 +256,20 @@
         "output": 0,
         "cacheRead": 0
       }
+    },
+    {
+      "id": "iceman-contributor-free",
+      "object": "model",
+      "created": 1792965777,
+      "owned_by": "opencode",
+      "name": "Iceman Contributor Free",
+      "contextWindow": 262144,
+      "maxOutputTokens": 131072,
+      "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0
+      }
     }
   ],
   "recommendations": {

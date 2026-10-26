@@ -40,12 +40,18 @@ in the kit README and `agentContext`.
    (`https://opencode.ai/inference/go/openai/v1`). The models URL stays on the
    same host (`https://opencode.ai/inference/go/v1/models`), satisfying the
    contract's SSRF cross-check.
-2. **The catalog contains only routable models.** The snapshot lists exactly the
-   18 entries in the Go docs endpoint table that use
-   `/openai/v1/chat/completions` (17 paid models plus Beam Free). Models served
-   over Anthropic Messages, Google Generative AI, or OpenAI Responses endpoints
-   are omitted, as are undocumented free, stealth/experimental, and legacy ids.
-   The normalizer enforces an explicit `OPENAI_COMPATIBLE_MODEL_IDS` allowlist
+2. **The catalog contains only routable models.** The snapshot lists 19
+   OpenAI-compatible models: the 18 entries in the Go docs endpoint table that
+   use `/openai/v1/chat/completions` (17 paid models plus Beam Free), plus one
+   active free/experimental alias (`iceman-contributor-free`) that models.dev
+   publishes as OpenAI-compatible but that is absent from that table. Models
+   served over Anthropic Messages, Google Generative AI, or OpenAI Responses
+   endpoints are omitted, as are undocumented free ids belonging to other
+   providers and legacy ids. Five deprecated free/experimental aliases
+   (`step-5-preview-free`, `minimax-m3.1-flash-free`, `longcat-2.5-preview-free`,
+   `space-bunny`, `cat-jam-free`) are intentionally excluded: a deprecated alias
+   is not a supported target and may disappear or already be unavailable. The
+   normalizer enforces an explicit `OPENAI_COMPATIBLE_MODEL_IDS` allowlist
    shared with the tests and fails on any unknown id, so a raw `/v1/models`
    capture cannot be published by accident. Adding a protocol requires widening
    `apiProtocol` and renderer support; it is not a catalog edit.
@@ -122,8 +128,9 @@ in the kit README and `agentContext`.
 - A harness that speaks OpenAI-compatible chat completions and honors the
   session/user-agent expectations can consume OpenCode Go with no
   OpenCode-specific knowledge.
-- The catalog is honest about coverage: the 18 documented OpenAI-compatible
-  entries, matching the declared protocol.
+- The catalog is honest about coverage: 19 OpenAI-compatible models (the 18
+  documented endpoint-table entries plus one active free/experimental alias),
+  matching the declared protocol.
 - Updating models is a fixture edit plus a regeneration and test run; adding an
   id that is not in the allowlist fails until it is deliberately reviewed.
 - DeepSeek cost accounting in a consumer is off-peak by default; peak accounting
