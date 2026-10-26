@@ -43,7 +43,8 @@ install. It logs the path and version and skips the pinned npm install.
 **Fix:** remove or rename the pre-existing `pi` (and the `pi-real` sibling if it
 belongs to this kit) and re-run the startup step, or recreate the sandbox. If
 you see a *different* path from `command -v pi`, the pre-existing binary is
-earlier on PATH.
+earlier on PATH. A pre-existing pi outside `$HOME/.local/bin` is not wrapped by
+this kit, so it does not inherit the kit's CA bundle.
 
 ## `pi --list-models` is empty, or has no provider
 

@@ -64,12 +64,12 @@ opt-in `--kit` mixin, not an acq-built-in agent.
 | `models[].cost.{input,output,cacheRead,cacheWrite}` | USD/1M | same four fields; missing fields become `0` because pi's `ModelCost` requires all four |
 | `models[].costAbove200kContext` | USD/1M above 200k | `models[].cost.tiers = [{ inputTokensAbove: 200000, … }]` |
 
-The neutral tier and pi's tier both trigger on input above 200,000 tokens. pi
-applies the highest matching request-wide tier, which is the closest supported
-representation of the neutral field. If a provider publishes a base `cost` but
-no tier, pi gets the four base fields only. If it publishes a tier without a
-base cost, the base fields are emitted as `0` so pi's required `ModelCost`
-shape stays valid.
+The neutral field is named for context-window pricing and pi's tier is keyed to
+total request input; both are long-input thresholds at 200,000 tokens, and pi's
+request-wide tier is the closest supported representation. If a provider
+publishes a base `cost` but no tier, pi gets the four base fields only. If it
+publishes a tier without a base cost, the base fields are emitted as `0` so
+pi's required `ModelCost` shape stays valid.
 
 The emitted document starts with
 `"$schema": "https://pi.dev/schemas/models.schema.json"`.
@@ -158,7 +158,9 @@ message and exits 0.
   the version probe fails and the next boot reinstalls.
 - If a **different** pi is already on `PATH`, the kit honors it and does not
   shadow it with a second install. It logs the path and version. That pi may be
-  a different release; remove it if you need the reviewed pin.
+  a different release; remove it if you need the reviewed pin. When it lives
+  outside `$HOME/.local/bin`, this kit does not wrap it, so its CA trust is
+  whatever that installation provides.
 
 ## CA-bundle handling
 
