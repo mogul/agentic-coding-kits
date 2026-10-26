@@ -353,6 +353,12 @@ test("defaults: name falls back to id, missing cost fields become 0, and unknown
       renderedFor(path.join(directory, "unknown-cost"), { catalog: unknownCost }),
       /unsupported field 'cache_write'/,
     )
+
+    const unknownModelField = { ...minimal, models: [{ id: "model-a", extra: true }] }
+    await assert.rejects(
+      renderedFor(path.join(directory, "unknown-model-field"), { catalog: unknownModelField }),
+      /model for 'opencode-go' contains unsupported field 'extra'/,
+    )
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
