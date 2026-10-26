@@ -118,9 +118,12 @@ key into `models.json`.
 add to or replace same-id entries on that provider; they do not replace pi's
 entire bundled model list. This is documented pi behavior.
 
-**Fix:** none required if the neutral model ids are present. If you need a
-provider namespace that pi does not already bundle, the neutral `providerId`
-would have to differ, which is a provider-kit change, not an agent-kit toggle.
+**Fix:** none required if the neutral model ids are present. Treat the provider
+kit's catalog as the supported set: the kit's provider-wide `baseUrl`/`api` may
+not match pi's extra bundled ids, which may be served by different protocols. If
+you need a provider namespace that pi does not already bundle, the neutral
+`providerId` would have to differ, which is a provider-kit change, not an
+agent-kit toggle.
 
 
 ## The renderer exits non-zero

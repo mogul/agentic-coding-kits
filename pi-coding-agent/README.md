@@ -102,12 +102,23 @@ Example output for `opencode-go`:
 }
 ```
 
+### Provider-specific headers are not synthesized
+
+The neutral facts describe protocol, endpoint, credential name, and model
+metadata. They do not carry provider-specific request headers such as OpenCode
+Go's `x-opencode-session`. This kit maps only the neutral vocabulary and does
+not invent harness headers; see the provider kit's README for any client
+expectations the service imposes.
+
 ### Provider IDs already known to pi
 
 pi merges a `models.json` provider into its bundled catalog. If the provider id
 matches one pi already knows (as `opencode-go` does), `pi --list-models` shows
 the neutral models **plus** pi's bundled models for that id. Same-id entries
-from this kit replace the bundled metadata; the rest are pi's own catalog.
+from this kit replace the bundled metadata; the rest are pi's own catalog. The
+kit's `baseUrl` and `api` are provider-wide, so pi's extra bundled ids for that
+id may not be served by the neutral protocol; treat the provider kit's catalog
+as the supported set.
 
 That is pi's documented merge behavior, not a renderer bug. The acceptance
 contract is that the provider kit's model ids are present; a strict "only these
