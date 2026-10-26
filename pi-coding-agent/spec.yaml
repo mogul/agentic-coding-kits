@@ -28,7 +28,7 @@ displayName: pi (earendil-works terminal coding agent)
 description: >
   Installs the pinned pi CLI (@earendil-works/pi-coding-agent) via npm and
   renders acq's host-materialized provider generation into pi's models.json.
-  After startup, `pi --list-models` lists every model published by the provider
+  After startup, `pi --list-models` lists the models published by the provider
   kit selected alongside this one. Opt-in mixin; no published ports.
 
 caps:
@@ -81,10 +81,12 @@ agentContext: |
   Provider configuration is rendered at startup from acq's read-only provider
   generation (`$ACQ_PROVIDER_INPUT_ROOT/models/providers/<providerId>/`). The
   renderer writes `~/.pi/agent/models.json`; `pi --list-models` lists the models
-  that the provider kit selected alongside this kit publishes. Credentials are
-  not stored here: `models.json` references the provider's key by environment
-  variable name (for example `$OPENCODE_GO_API_KEY`), and acq injects the value
-  at runtime.
+  that the provider kit selected alongside this kit publishes. If the provider
+  id is one pi already bundles (for example `opencode-go`), pi may also show its
+  own bundled models for that id; the neutral catalog's entries are present and
+  override same-id metadata. Credentials are not stored here: `models.json`
+  references the provider's key by environment variable name (for example
+  `$OPENCODE_GO_API_KEY`), and acq injects the value at runtime.
 
   Only the `openai-compatible` neutral protocol is supported; it maps to pi's
   `openai-completions` API. A provider kit that declares another protocol is a

@@ -64,6 +64,13 @@ opt-in `--kit` mixin, not an acq-built-in agent.
 | `models[].cost.{input,output,cacheRead,cacheWrite}` | USD/1M | same four fields; missing fields become `0` because pi's `ModelCost` requires all four |
 | `models[].costAbove200kContext` | USD/1M above 200k | `models[].cost.tiers = [{ inputTokensAbove: 200000, … }]` |
 
+The neutral tier and pi's tier both trigger on input above 200,000 tokens. pi
+applies the highest matching request-wide tier, which is the closest supported
+representation of the neutral field. If a provider publishes a base `cost` but
+no tier, pi gets the four base fields only. If it publishes a tier without a
+base cost, the base fields are emitted as `0` so pi's required `ModelCost`
+shape stays valid.
+
 The emitted document starts with
 `"$schema": "https://pi.dev/schemas/models.schema.json"`.
 
@@ -139,9 +146,19 @@ See [`docs/decisions/0001`](docs/decisions/0001-install-pi-from-npm-with-a-pinne
 `--ignore-scripts` removes install-time lifecycle hooks. pi has no build step,
 so nothing is lost. It does not sandbox code that runs when `pi` is invoked.
 
-The install is a no-op when `command -v pi` already resolves. It is also
+The install is a no-op when `pi` already resolves **and runs**. It is also
 fail-soft: missing Node/npm, an old Node, or a registry failure logs a clear
 message and exits 0.
+
+### Idempotency and pre-existing pi
+
+- A blank sandbox installs the pinned version.
+- A later boot sees the wrapper, runs `pi --version`, and skips npm.
+- If a half-finished install left a file that resolves but does not execute,
+  the version probe fails and the next boot reinstalls.
+- If a **different** pi is already on `PATH`, the kit honors it and does not
+  shadow it with a second install. It logs the path and version. That pi may be
+  a different release; remove it if you need the reviewed pin.
 
 ## CA-bundle handling
 
@@ -152,13 +169,15 @@ system trust store into:
 ~/.local/state/pi-coding-agent/ca-bundle.pem
 ```
 
-It exports `NODE_EXTRA_CA_CERTS` for the npm install itself, then replaces
-npm's `~/.local/bin/pi` shim with a small wrapper that exports the same bundle
-before `exec`ing the real entrypoint. That makes a user's later `pi` invocation
-trust the same inspection chain. The bundle is rebuilt every boot; the wrapper
-is written once.
+It exports `NODE_EXTRA_CA_CERTS` for the npm install itself, then moves npm's
+`~/.local/bin/pi` entrypoint to the sibling `~/.local/bin/pi-real` and writes a
+small wrapper at `pi`. The wrapper exports the same bundle and executes
+`pi-real`. Keeping the real entrypoint as a sibling means the wrapper embeds no
+path at all, so a `HOME` containing spaces, quotes, `$`, backticks, or newlines
+cannot break (or inject into) the generated shell.
 
-If `PROXY_CA_CERT_B64` is malformed, the script warns and omits it rather than
+The bundle is rebuilt every boot; the wrapper is written once. If
+`PROXY_CA_CERT_B64` is malformed, the script warns and omits it rather than
 shipping a broken bundle.
 
 ## Using the kit
@@ -205,26 +224,33 @@ scripts/verify                   # offline gate
 RUN_ACQ=1 scripts/verify         # live acq/msb gate
 ```
 
-`scripts/verify` runs the offline gate always: spec presence, `sh -n` on the
-installer, the renderer tests, source-level regression guards, and
-`acq kit validate` when available. `RUN_ACQ=1` additionally creates a sandbox
-with both kits, waits for startup, checks `command -v pi`, inspects the rendered
-`models.json`, and asserts that `pi --list-models` contains provider model ids.
-On an acq build without the decoupled provider pipeline it reports a SKIP with
-that reason rather than a false failure.
+`scripts/verify` runs the offline gate always: spec presence, `sh -n` and
+`shellcheck --severity=warning` on the installer, a stub-npm install behavior
+suite (idempotency, broken-install recovery, hostile `HOME`, fail-soft registry
+failure, CA decode warning), the renderer tests, source-level regression guards,
+and `acq kit validate` when available. The renderer suite vendors a snapshot of
+the live `pi.dev` models schema so every emitted shape is validated offline.
+`RUN_ACQ=1` additionally creates a sandbox with both kits, waits for startup,
+checks `command -v pi`, inspects the rendered `models.json`, and asserts that
+`pi --list-models` contains provider model ids. On an acq build without the
+decoupled provider pipeline it reports a SKIP with that reason rather than a
+false failure.
 
 ## Security notes
 
 - **No secrets.** The kit references `OPENCODE_GO_API_KEY` by name only. The
   value is injected by acq and never written to `models.json`.
 - **Provider input is validated fail-closed.** Schema versions, provider
-  identity, directory name, key-name shape, HTTPS URLs, host agreement, and
-  protocol are all checked before anything is written.
+  identity, directory name, key-name shape, HTTPS URLs, host agreement,
+  protocol, length limits, and full-match regex semantics all follow the
+  vendored neutral schemas. Symlinked provider directories and input files are
+  rejected.
 - **Unknown fields are rejected** rather than silently ignored or passed
-  through.
+  through; the neutral schemas set `additionalProperties: false`.
 - **`models.json` is kit-owned.** The renderer rewrites it atomically whenever
-  an authoritative provider generation exists. Put personal overrides
-  elsewhere, or expect them to be replaced on the next start.
+  an authoritative provider generation exists. A symlink at the target is
+  replaced, not followed. Put personal overrides elsewhere, or expect them to
+  be replaced on the next start.
 - The vendored provider snapshot under `opencode-go-provider/` is agent-owned
   and is not a trust anchor; the renderer reads only the host-materialized
   generation under `$ACQ_PROVIDER_INPUT_ROOT`.

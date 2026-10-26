@@ -43,14 +43,19 @@ providers and models from `~/.pi/agent/models.json` (or
    - `facts.schemaVersion === "acq-provider-facts/v1"`
    - `snapshot.schemaVersion === "acq-neutral-model-catalog/v1"`
    - `facts.providerId === snapshot.providerId === <directory name>`
-   - `providerId` matches `^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`
-   - `keyEnv` matches `^[A-Z][A-Z0-9_]*$`
-   - `baseUrl` and `modelsUrl` are HTTPS URLs with no credentials, port, query,
-     or fragment, and their hostname equals `facts.host`
+   - `providerId` and `keyEnv` use the schemas' full-match patterns
+     (`(?![\\s\\S])`, not `$`, so a trailing newline is rejected)
+   - `baseUrl` and `modelsUrl` start with lowercase `https://`, are within the
+     schema length limit, and have no credentials, port, query, or fragment;
+     their hostname equals `facts.host` case-insensitively
    - `apiProtocol` is a protocol this renderer implements
-   - model ids are non-empty and unique
+   - model ids, display names, and recommendations obey the schema's
+     control-character and length limits
+   - model ids are non-empty and unique; `models[]` may legitimately be empty
+   - `contextWindow` and `maxOutputTokens` are positive integers
    - costs are finite non-negative numbers
    - no unknown fields appear in facts, catalog, model, or cost objects
+   - provider directories and `facts.json`/`snapshot.json` are not symlinks
 
    Any failure aborts the whole render with a precise message. It never writes a
    partial or plausibly-wrong config.
@@ -84,14 +89,19 @@ providers and models from `~/.pi/agent/models.json` (or
 6. **Map tiered neutral pricing to pi tiers.** A
    `costAbove200kContext` object becomes
    `cost.tiers = [{ inputTokensAbove: 200000, … }]`, preserving upstream
-   pricing instead of silently dropping it. The neutral schema's only tier
-   boundary is 200k context; pi's request-wide tier expresses it faithfully.
+   pricing instead of silently dropping it. Both surfaces trigger on input above
+   200,000 tokens; pi applies the highest matching request-wide tier, which is
+   the closest supported representation of the neutral context-window tier. If
+   the neutral entry has a tier but no base cost, pi's required base fields are
+   emitted as `0`.
 
 7. **Write atomically and authoritatively.** The renderer creates the config
-   directory, writes a `0600` temporary file in the same directory, `fsync`s it,
-   renames it over the target, and best-effort `fsync`s the directory. The
-   output is deterministic: providers sorted by id, models in catalog order.
-   `models.json` is kit-owned; personal overrides belong in a separate surface.
+   directory, writes a `0600` temporary file in the same directory with `wx`,
+   `fsync`s it, renames it over the target, and best-effort `fsync`s the
+   directory. `rename` replaces a symlink at the target rather than following
+   it. The output is deterministic: providers sorted by id, models in catalog
+   order. `models.json` is kit-owned; personal overrides belong in a separate
+   surface.
 
 8. **Keep recommendations advisory and validated.** Neutral role
    recommendations are checked for shape and cross-reference integrity, then
@@ -135,3 +145,6 @@ providers and models from `~/.pi/agent/models.json` (or
   pi config surface.
 - Adding a protocol or a non-200k pricing tier is a reviewed renderer change,
   not a catalog edit.
+- The test suite vendors a snapshot of the live `pi.dev` models schema, so every
+  emitted shape (including cost tiers and empty model lists) is schema-validated
+  offline.

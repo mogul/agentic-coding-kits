@@ -52,7 +52,10 @@ installer.
    that needs a toolchain and could fail during create. A registry outage should
    leave a usable sandbox without an optional CLI, not abort creation. This is
    why the step is fail-soft (`trap` plus explicit `exit 0` paths) and reports
-   failures in a log.
+   failures in a log. Idempotency checks that `pi --version` actually runs, not
+   just that a path exists, so a half-finished install is repaired on the next
+   boot. A working `pi` already on PATH from another installation is honored and
+   logged rather than silently shadowed by a second copy.
 
 6. **Fold the proxy CA into a wrapper.** The sandbox proxy CA arrives as
    `PROXY_CA_CERT_B64`. Node does not read the system store by default, and an
@@ -63,13 +66,18 @@ installer.
      partial bytes in the bundle),
    - appends the first available system CA bundle,
    - exports `NODE_EXTRA_CA_CERTS` for its own npm install,
-   - replaces npm's `$HOME/.local/bin/pi` shim once with a wrapper that exports
-     the same bundle and `exec`s the real entrypoint.
+   - moves npm's `$HOME/.local/bin/pi` entrypoint (symlink or regular file) to
+     the sibling `$HOME/.local/bin/pi-real`,
+   - writes a wrapper at `$HOME/.local/bin/pi` that exports the same bundle and
+     executes `pi-real`.
+
+   The wrapper embeds **no path**: it derives its directory from `$0` at
+   runtime. That matters because `$HOME` is environment-controlled; embedding
+   it in shell text would require perfect quoting of spaces, quotes, `$`,
+   backticks, and newlines. A sibling binary has none of those failure modes.
 
    The bundle is rebuilt every boot because the proxy CA can rotate. The wrapper
-   is static and written once. If the platform materializes npm's bin entry as a
-   regular file instead of a symlink, the script moves that file to `pi-real` and
-   wraps it too.
+   is static and written once.
 
 7. **No `agent:` block.** acq treats `agent:` as a declaration that the kit
    provides a built-in agent token. pi is not one of acq's built-in agents; this

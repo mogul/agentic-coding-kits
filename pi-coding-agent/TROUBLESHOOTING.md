@@ -32,6 +32,19 @@ it.
   will resolve. Do not "fix" this by pointing at another prefix in one kit; the
   default-PATH contract is what makes a bare `sh -c` probe work.
 
+## `pi --version` is not the pinned `1.4.0`
+
+**Symptoms:** pi runs, but its version differs from the kit's pin.
+
+**Cause:** the kit is idempotent and deliberately honors any `pi` already on
+PATH that executes successfully, including one from a base image or a user
+install. It logs the path and version and skips the pinned npm install.
+
+**Fix:** remove or rename the pre-existing `pi` (and the `pi-real` sibling if it
+belongs to this kit) and re-run the startup step, or recreate the sandbox. If
+you see a *different* path from `command -v pi`, the pre-existing binary is
+earlier on PATH.
+
 ## `pi --list-models` is empty, or has no provider
 
 **Symptoms:** pi runs, but the list is empty or lacks `opencode-go`.
@@ -152,7 +165,7 @@ invocations use it. Check:
 
 ```bash
 acq exec <sandbox> -- sh -c 'echo "len=${#PROXY_CA_CERT_B64}"; wc -c "$HOME/.local/state/pi-coding-agent/ca-bundle.pem"'
-acq exec <sandbox> -- sh -c 'head -n1 "$(command -v pi)"; grep -n NODE_EXTRA_CA_CERTS "$(command -v pi)"'
+acq exec <sandbox> -- sh -c 'head -n1 "$(command -v pi)"; grep -n NODE_EXTRA_CA_CERTS "$(command -v pi)"; ls -l "$(dirname "$(command -v pi)")/pi-real"'
 ```
 
 - If `PROXY_CA_CERT_B64` is empty, acq/the base image did not supply the proxy
@@ -160,8 +173,10 @@ acq exec <sandbox> -- sh -c 'head -n1 "$(command -v pi)"; grep -n NODE_EXTRA_CA_
 - If the decode warning appears in the startup output, the value is malformed
   base64. Do not disable TLS verification; fix or re-issue the CA value.
 - The `pi` on PATH should be a small shell wrapper mentioning
-  `NODE_EXTRA_CA_CERTS`, not npm's raw JS entrypoint. If it is raw, the wrapper
-  step could not resolve the real entrypoint; see the install log.
+  `NODE_EXTRA_CA_CERTS` and `pi-real`, not npm's raw JS entrypoint. The wrapper
+  derives its directory from `$0` and executes the sibling `pi-real`. If the
+  wrapper is missing, or `pi-real` is missing, the wrapper step did not run or
+  the install was interrupted; re-run the install script and read the log.
 
 ## Requests are rejected with HTTP 401/403
 
