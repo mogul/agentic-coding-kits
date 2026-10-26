@@ -48,9 +48,14 @@ const SCHEMA_TEXT = /^[^\u0000-\u001F\u007F\u2028\u2029]+(?![\s\S])/
 
 // Harness-owned protocol adapters. The neutral protocol is a bounded value;
 // adding one requires a deliberate renderer change, not a provider edit.
-const API_PROTOCOLS = Object.freeze({
+//
+// Null-prototype lookup: a plain object would resolve values such as
+// "__proto__" or "constructor" from Object.prototype, turning an unsupported
+// protocol into a truthy non-string adapter. The neutral schema's enum already
+// bounds this, but the renderer must fail closed even if that check is bypassed.
+const API_PROTOCOLS = Object.freeze(Object.assign(Object.create(null), {
   "openai-compatible": "openai-completions",
-})
+}))
 
 export const COST_FIELDS = Object.freeze(["input", "output", "cacheRead", "cacheWrite"])
 export const FACTS_FIELDS = new Set(["schemaVersion", "providerId", "apiProtocol", "host", "baseUrl", "modelsUrl", "keyEnv"])
@@ -82,7 +87,9 @@ function schemaText(value, label, maxLength) {
 }
 
 function positiveInteger(value, label) {
-  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${label} must be a positive integer`)
+  // The neutral schema says "integer, minimum 1" with no upper bound. Do not
+  // impose Number.isSafeInteger here: that would reject a schema-valid catalog.
+  if (!Number.isInteger(value) || value < 1) throw new Error(`${label} must be a positive integer`)
   return value
 }
 

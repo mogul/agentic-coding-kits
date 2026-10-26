@@ -219,6 +219,16 @@ test("unsupported apiProtocol fails closed", async () => {
     const root = await makeRoot(directory, { facts: { ...facts, apiProtocol: "anthropic-messages" } })
     const inputs = await loadProviderInputs(root)
     assert.throws(() => renderModels(inputs), /unsupported apiProtocol/)
+
+    for (const prototypeKey of ["__proto__", "constructor", "toString"]) {
+      await assert.rejects(
+        renderedFor(path.join(directory, prototypeKey.replaceAll("_", "x")), {
+          facts: { ...facts, apiProtocol: prototypeKey },
+          catalog,
+        }),
+        /unsupported apiProtocol/,
+      )
+    }
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
