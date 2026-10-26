@@ -73,7 +73,7 @@ jobs:
           cp "$schema" "$work/schemas/"
           cp pi-coding-agent/spec.yaml pi-coding-agent/README.md "$kit/"
           cp -R pi-coding-agent/files "$kit/files"
-          printf 'kits:\n  pi-coding-agent:\n    description: ci\n' \
+          printf 'schemaVersion: "acq-kits-registry/v1"\nkits:\n  pi-coding-agent:\n    backends: [sbx, msb]\n    parity: CI validation entry.\n' \
             > "$work/integrations/isolation/acq-kits/kits.yaml"
           python "$validator" --root "$work" --strict
 
