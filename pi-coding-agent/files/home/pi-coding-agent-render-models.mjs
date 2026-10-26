@@ -355,8 +355,11 @@ function argument(name, fallback) {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const providerRoot = argument("--provider-root", process.env.ACQ_PROVIDER_INPUT_ROOT ?? "/var/lib/acq/provider-input")
-  const configDir = process.env.PI_CODING_AGENT_DIR ?? path.join(process.env.HOME ?? "/home/agent", ".pi", "agent")
+  // Treat an empty environment value as absent. An empty ACQ_PROVIDER_INPUT_ROOT
+  // would otherwise resolve to a relative models/providers path; an empty
+  // PI_CODING_AGENT_DIR would write models.json into the current directory.
+  const providerRoot = argument("--provider-root", process.env.ACQ_PROVIDER_INPUT_ROOT || "/var/lib/acq/provider-input")
+  const configDir = process.env.PI_CODING_AGENT_DIR || path.join(process.env.HOME || "/home/agent", ".pi", "agent")
   const modelsFile = argument("--models-file", path.join(configDir, "models.json"))
   applyModelsProjection(providerRoot, modelsFile)
     .then((status) => {
