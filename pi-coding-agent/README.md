@@ -155,7 +155,7 @@ message and exits 0.
 - A blank sandbox installs the pinned version.
 - A later boot sees the wrapper, runs `pi --version`, and skips npm.
 - If a half-finished install left a file that resolves but does not execute,
-  the version probe fails and the next boot reinstalls.
+  the version probe fails and the installer runs again in that boot.
 - If a **different** pi is already on `PATH`, the kit honors it and does not
   shadow it with a second install. It logs the path and version. That pi may be
   a different release; remove it if you need the reviewed pin. When it lives
@@ -178,7 +178,8 @@ small wrapper at `pi`. The wrapper exports the same bundle and executes
 path at all, so a `HOME` containing spaces, quotes, `$`, backticks, or newlines
 cannot break (or inject into) the generated shell.
 
-The bundle is rebuilt every boot; the wrapper is written once. If
+The bundle is rebuilt every boot; the wrapper is written on the first
+successful install and left alone on later boots. If
 `PROXY_CA_CERT_B64` is malformed, the script warns and omits it rather than
 shipping a broken bundle.
 
