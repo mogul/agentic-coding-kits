@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gsa-tts.github.io/agentic-coding-patterns/schemas/kit-hybrid-v1.schema.json",
+  "title": "acq Neutral Kit Schema (hybrid/v1)",
+  "description": "Schema for the neutral, backend-agnostic acq kit spec (schemaVersion: \"hybrid/v1\"). Captures the declarative parts of an isolation-sandbox mixin kit (network egress, files to drop, lifecycle commands, agent context) in a vocabulary shared across acq backends (sbx, msb, ppp), plus per-backend shortcuts and extras. See integrations/isolation/docs/decisions/0001-neutral-hybrid-v1-acq-kits.md and the acq-design.md exploration (quickstart repo) for rationale.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "name",
+    "displayName",
+    "description"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "hybrid/v1",
+      "description": "Must be exactly the string \"hybrid/v1\"."
+    },
+    "kind": {
+      "type": "string",
+      "const": "mixin",
+      "description": "Only mixin kits are modeled by hybrid/v1 today (they layer onto a base agent sandbox)."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$",
+      "description": "Kit identifier. Kebab-case, 1-64 chars, starts/ends alphanumeric. SHOULD equal the containing directory name."
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable kit name."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One-paragraph summary of what the kit does."
+    },
+    "caps": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Sandbox capabilities the kit requires.",
+      "properties": {
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tier": {
+              "type": "string",
+              "enum": ["strict", "balanced", "open"],
+              "default": "balanced",
+              "description": "Neutral egress posture, mapped by each backend to its native primitive. ALL tiers are deny-by-default; the tier only sizes the baseline allowlist. `strict` = no baseline (kit `allow` only); `balanced` = a curated shared baseline ∪ the kit `allow` (the default when unspecified); `open` = unrestricted egress (testing only, never for GFE). The effective allowlist is: tier baseline ∪ this kit's `allow` ∪ per-sandbox additions."
+            },
+            "allow": {
+              "type": "array",
+              "description": "Outbound egress allow-list. Hostnames, optionally with :port (default 443). Each backend maps these to its native egress primitive.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "description": "Files to drop into the guest. Each backend materializes these via its native file-drop mechanism.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "mode"],
+        "oneOf": [
+          { "required": ["source"] },
+          { "required": ["content"] }
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/[A-Za-z0-9._/-]+$",
+            "description": "Absolute path inside the sandbox. Safe charset only (alphanumerics . _ / -): kit-dropped paths must not contain shell metacharacters, since backend adapters may interpolate the path into a command (e.g. chmod). See #225."
+          },
+          "mode": {
+            "type": "string",
+            "pattern": "^0[0-7]{3}$",
+            "description": "Octal file mode as a string, e.g. \"0644\"."
+          },
+          "source": {
+            "type": "string",
+            "pattern": "^files/",
+            "description": "Path (relative to the kit dir, under files/) to the payload file. Preferred over inline content for multi-line payloads. Mutually exclusive with content."
+          },
+          "content": {
+            "type": "string",
+            "description": "Inline file content. Use for short blobs (e.g. a PEM); prefer source for larger payloads. Mutually exclusive with source."
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["initFiles"],
+            "description": "Optional lifecycle phase hint for when the file is written (default: written before commands run)."
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "description": "Lifecycle commands, in neutral phase vocabulary. Adapters map each phase to the backend's native hook.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["phase", "command"],
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": ["install", "initFiles", "startup"],
+            "description": "install = root, create-time once; initFiles = agent uid, every start after base setup; startup = every start after initFiles."
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Numeric uid to run as (e.g. \"0\" root, \"1000\" agent). Defaults are phase-specific if omitted."
+          },
+          "description": {
+            "type": "string"
+          },
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "argv form (list of strings). To run a shell snippet, use [\"sh\", \"-c\", \"...\"]."
+          },
+          "background": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, run this command detached rather than awaited — for a startup command whose process never exits (e.g. a supervisor loop) so it must not block sandbox start. Neutral vocabulary: each backend maps this to its native background/detached hook. Defaults to false (the command is awaited)."
+          }
+        }
+      }
+    },
+    "publishedPorts": {
+      "type": "array",
+      "description": "Guest ports to publish to the host. Each backend maps these to its native port-publish primitive (e.g. sbx port-publish). Host loopback binding and per-sandbox ephemeral host ports are a backend concern; the neutral spec only declares the guest port, optional fixed host port, protocol, and a name.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["guest"],
+        "properties": {
+          "guest": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Guest (container) port to publish. Required, 1..65535."
+          },
+          "host": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Fixed host port to bind. Optional; when omitted the backend defaults it to the guest value (or an ephemeral host port, backend's choice). 1..65535."
+          },
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"],
+            "default": "tcp",
+            "description": "Transport protocol. Optional; conceptually defaults to \"tcp\" when omitted."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,64}$",
+            "description": "Optional human-readable label for the mapping (e.g. \"opencode-server\"). Safe charset only: alphanumerics . _ -, 1-64 chars."
+          }
+        }
+      }
+    },
+    "volumes": {
+      "type": "array",
+      "description": "Sized guest storage volumes, mounted at sandbox creation BEFORE any exec is possible (so storage layout never races startup commands or early agent use). Each backend maps these to its native primitive (sbx: kit-spec v2 §5.7 volumes, a dedicated block device; msb: a per-sandbox derived named disk volume via --mount-named, or --tmpfs). Creation-time only — in-place kit add cannot attach volumes. Volumes mount UNSEEDED: an empty filesystem shadows any image content at the path, so a kit needing that content ships its own first-boot copy step. Composition: union by path, last wins. There is deliberately no 'mode' field (no msb equivalent; chmod in a startup step instead) — see quickstart ADR-0022.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "size"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/[A-Za-z0-9._/-]+$",
+            "description": "Absolute mount path inside the sandbox. Safe charset only (alphanumerics . _ / -): the path reaches a generated backend spec and an msb create argv, so it must not carry shell/YAML metacharacters. Same charset rule as files[].path (see #225)."
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]+)?[kKmMgGtTpP]?$",
+            "description": "Volume size as a non-zero, PORTABLE byte-size string (integer or decimal + optional bare k/m/g/t/p unit, e.g. \"20G\", \"512m\", \"1.5G\"). Deliberately NO b/ib suffixes (\"256MB\", \"2gib\"): sbx's units.RAMInBytes accepts them but msb's size parser rejects them (verified on msb 0.6.12), and a neutral size must work on every backend. REQUIRED: the neutral schema does not inherit sbx's unsized-volume default, which changed between sbx releases. Block volumes should be >= ~256m — msb refuses ext4 disk images below 128M (\"image size is too small for ext4 formatting\", verified on msb 0.6.12)."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["", "tmpfs"],
+            "default": "",
+            "description": "Backing storage. \"\" (default) = block-backed volume (dedicated ext4 device); \"tmpfs\" = RAM-backed. Any other value is rejected."
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "description": "Non-secret guest environment variables to set for the sandbox. A flat map of NAME -> value (both strings). Each backend maps these onto its native env mechanism (sbx: environment.variables; msb: create/exec --env NAME=value). SECRETS MUST NOT go here — use the backend credential/secret path instead (this block is plain, human-readable config that lands in the guest environment and may reach a shell).",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z_][A-Za-z0-9_]*$": {
+          "type": "string",
+          "description": "Environment variable value (a plain, non-secret string)."
+        }
+      }
+    },
+    "agentContext": {
+      "type": "string",
+      "description": "Markdown context surfaced to the agent (written to the agent context root by each backend)."
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "entrypoint"],
+      "description": "Declares this kit as a harness-agent kit: it installs and starts a specific coding-agent harness (e.g. OpenCode) rather than only layering a capability onto one. Optional — most mixin kits (providers, CA trust, chat-harness servers) have no agent block. A consumer (e.g. acq's built-in agent-kit inference) reads name/entrypoint to validate that a kit fetched for a given agent token is genuinely that agent's kit before enabling implicit selection, so a wrong or mismatched kit cannot silently satisfy the gate.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$",
+          "description": "The agent token this kit provides (e.g. \"opencode\"). Kebab-case, matching the consumer's known-agent vocabulary. SHOULD equal the kit's own `name`, but is declared separately because a kit's directory/kit name and the agent token it installs are conceptually distinct fields even when they share a value today."
+        },
+        "entrypoint": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$",
+          "description": "The command name the installed agent binary is invoked as inside the guest (e.g. \"opencode\"). Used by a consumer to confirm the kit's own metadata agrees with what it is about to exec."
+        }
+      }
+    },
+    "backend_shortcuts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-backend native primitives that replace the declarative caps/files/commands path for that backend. Adapters check this first; when a shortcut is present for the active backend, caps/files/commands are skipped for this kit. NOTE: each backend value is an unconstrained object (human-review-only; the shape is NOT schema-enforced). 'ppp' is a reserved slot for the in-flight Podman backend (Phase 3); 'sbx' and 'msb' have live consumers.",
+      "properties": {
+        "sbx": { "type": "object" },
+        "msb": { "type": "object" },
+        "ppp": { "type": "object" }
+      }
+    },
+    "backend_extras": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Free-form per-backend configuration the neutral spec does not model. Each backend value is an unconstrained object: it is surfaced in-spec so a human reviewer sees it, but its shape is human-review-only and NOT schema-enforced. 'ppp' is reserved for the in-flight Podman backend (Phase 3).",
+      "properties": {
+        "sbx": { "type": "object" },
+        "msb": { "type": "object" },
+        "ppp": { "type": "object" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional bundle-provenance metadata for the built-in kit bundle (quickstart#235). Declares WHICH bundle this kit belongs to so a consumer (acq) can detect an installed sandbox bundle that is older than the locally approved PATTERNS_KIT_REF and offer a safe refresh. The applied commit SHA, timestamp, and backend are recorded by the CONSUMER inside the sandbox at apply time — NOT here — because the committed spec cannot know the ref it will be fetched at.",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Source repository in owner/name form (e.g. GSA-TTS/agentic-coding-patterns).",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "bundle": {
+          "type": "string",
+          "description": "Logical bundle name this kit is part of (e.g. acq-builtin).",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "bundle_version": {
+          "type": "string",
+          "description": "Bundle schema/version string, bumped when the bundle's shape changes in a way consumers must notice (semver or an integer-as-string).",
+          "pattern": "^[0-9]+(?:\\.[0-9]+){0,2}$"
+        },
+        "kit_names": {
+          "type": "array",
+          "description": "The built-in kit names that compose the bundle, for consumer cross-checks.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

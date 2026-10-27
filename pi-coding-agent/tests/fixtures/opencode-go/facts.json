@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "acq-provider-facts/v1",
+  "providerId": "opencode-go",
+  "apiProtocol": "openai-compatible",
+  "host": "opencode.ai",
+  "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+  "modelsUrl": "https://opencode.ai/inference/go/v1/models",
+  "keyEnv": "OPENCODE_GO_API_KEY"
+}

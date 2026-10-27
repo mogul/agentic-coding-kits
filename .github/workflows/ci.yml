@@ -28,6 +28,17 @@ jobs:
         working-directory: opencode-go-provider
         run: npm test
 
+      - name: Install pi agent-kit test dependencies
+        working-directory: pi-coding-agent
+        run: npm ci
+
+      - name: Run pi agent-kit tests
+        working-directory: pi-coding-agent
+        run: npm test
+
+      - name: Run pi agent-kit offline verification
+        run: bash pi-coding-agent/scripts/verify
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -44,6 +55,27 @@ jobs:
           # Update deliberately together with the validator.
           ref: a290d5d80737fc739e7ec139da0eeaf438631631
           path: .patterns
+
+      - name: Validate pi agent-kit spec with the patterns validator (when present)
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=".patterns/integrations/isolation/acq-kits/validate-kits.py"
+          schema=".patterns/schemas/kit-hybrid-v1.schema.json"
+          if [ ! -f "$validator" ] || [ ! -f "$schema" ]; then
+            echo "Pinned patterns checkout predates the neutral kit validator;"
+            echo "the vendored kit-hybrid-v1 schema test in npm test is authoritative."
+            exit 0
+          fi
+          work="$(mktemp -d)"
+          kit="$work/integrations/isolation/acq-kits/pi-coding-agent"
+          mkdir -p "$work/schemas" "$kit"
+          cp "$schema" "$work/schemas/"
+          cp pi-coding-agent/spec.yaml pi-coding-agent/README.md "$kit/"
+          cp -R pi-coding-agent/files "$kit/files"
+          printf 'schemaVersion: "acq-kits-registry/v1"\nkits:\n  pi-coding-agent:\n    backends: [sbx, msb]\n    parity: CI validation entry.\n' \
+            > "$work/integrations/isolation/acq-kits/kits.yaml"
+          python "$validator" --root "$work" --strict
 
       - name: Validate provider input with a patched credential binding
         shell: bash

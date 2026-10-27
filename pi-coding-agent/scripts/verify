@@ -1,0 +1,493 @@
+#!/usr/bin/env bash
+#
+# verify — host-side validation for the pi-coding-agent acq mixin kit.
+#
+# Two layers:
+#
+#   1. OFFLINE GATE (always runs): spec presence, install-script syntax,
+#      renderer tests (node:test), and source-level guards for the behaviors
+#      that only matter in a live sandbox. If `acq kit validate` is available,
+#      the neutral hybrid/v1 spec is validated too.
+#
+#   2. LIVE END-TO-END (opt-in, RUN_ACQ=1): create a real sandbox with BOTH
+#      the opencode-go provider kit and this agent kit, wait for the startup
+#      install/render, then assert that `pi` is on the default PATH and that
+#      `pi --list-models` contains opencode-go model ids.
+#
+# Live requires an acq build that includes the provider/agent decoupling
+# (ACQ_PROVIDER_INPUT_ROOT, provider-input materialization, provider-credential
+# bindings). On an older acq the script reports a SKIP with that reason instead
+# of a false failure; the offline gate still runs.
+#
+# Usage (from anywhere):
+#   path/to/pi-coding-agent/scripts/verify          # offline gate only (default)
+#   RUN_ACQ=1 path/to/.../scripts/verify            # live, via acq/msb
+#   KEEP=1 RUN_ACQ=1 path/to/.../scripts/verify     # keep the sandbox to inspect
+
+set -uo pipefail
+
+KIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$KIT_DIR/.." && pwd)"
+PROVIDER_KIT="$REPO_ROOT/opencode-go-provider"
+INSTALL_SCRIPT="$KIT_DIR/files/home/pi-coding-agent-install.sh"
+RENDERER="$KIT_DIR/files/home/pi-coding-agent-render-models.mjs"
+SBX_NAME="pi-coding-agent-verify-$$"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/pi-coding-agent-verify.XXXXXX")"
+CREATE_LOG="$WORK/create.log"
+KEEP="${KEEP:-0}"
+RUN_ACQ="${RUN_ACQ:-0}"
+READY_TIMEOUT="${READY_TIMEOUT:-120}"
+POLL_INTERVAL="${POLL_INTERVAL:-2}"
+NODE_BIN="${NODE_BIN:-node}"
+
+pass=0
+fail=0
+ok()   { printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass+1)); }
+bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
+skip() { printf '  \033[33mSKIP\033[0m %s\n' "$1"; }
+info() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+cleanup() {
+  if [ "$KEEP" = "1" ]; then
+    printf '\nKEEP=1 set; leaving sandbox %s and %s in place.\n' "$SBX_NAME" "$WORK" >&2
+    return
+  fi
+  acq --backend msb rm "$SBX_NAME" >/dev/null 2>&1 || true
+  rm -rf "$WORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+info "0. Preconditions"
+if [ -f "$KIT_DIR/spec.yaml" ]; then
+  ok "kit spec.yaml present"
+else
+  bad "spec.yaml missing"
+  exit 1
+fi
+if [ -f "$INSTALL_SCRIPT" ]; then
+  ok "install script present"
+else
+  bad "files/home/pi-coding-agent-install.sh missing"
+  exit 1
+fi
+if [ -f "$RENDERER" ]; then
+  ok "models renderer present"
+else
+  bad "files/home/pi-coding-agent-render-models.mjs missing"
+  exit 1
+fi
+if [ -d "$PROVIDER_KIT" ]; then
+  ok "opencode-go-provider kit present (live pairing)"
+else
+  skip "opencode-go-provider kit not present; live pairing cannot be exercised"
+fi
+
+info "1. Install script syntax"
+if sh -n "$INSTALL_SCRIPT" 2>"$WORK/syntax.log"; then
+  ok "pi-coding-agent-install.sh parses as valid sh"
+else
+  bad "pi-coding-agent-install.sh has a syntax error"
+  sed 's/^/  | /' "$WORK/syntax.log" >&2
+fi
+
+info "1b. shellcheck (if available)"
+if command -v shellcheck >/dev/null 2>&1; then
+  if shellcheck --severity=warning "$INSTALL_SCRIPT" "$0" >"$WORK/shellcheck.log" 2>&1; then
+    ok "shellcheck --severity=warning passes"
+  else
+    bad "shellcheck --severity=warning failed"
+    sed 's/^/  | /' "$WORK/shellcheck.log" >&2
+  fi
+else
+  skip "shellcheck not installed (install it to run this gate)"
+fi
+
+info "1c. Install script offline behavior (stub npm; no network)"
+IC="$WORK/install-check"
+STUB_BIN="$IC/bin"
+FAIL_BIN="$IC/fail-bin"
+mkdir -p "$STUB_BIN" "$FAIL_BIN"
+cat > "$STUB_BIN/npm" <<'STUB_NPM'
+#!/bin/sh
+prefix=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --prefix) prefix="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+pkg="$prefix/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle"
+mkdir -p "$prefix/bin" "$pkg"
+printf '%s\n' '#!/bin/sh' 'echo stub-pi "$@"' > "$pkg/cli.js"
+chmod 0755 "$pkg/cli.js"
+if ! ln -s "../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" "$prefix/bin/pi" 2>/dev/null; then
+  cp "$pkg/cli.js" "$prefix/bin/pi"
+fi
+chmod 0755 "$prefix/bin/pi"
+exit 0
+STUB_NPM
+cat > "$FAIL_BIN/npm" <<'STUB_NPM_FAIL'
+#!/bin/sh
+echo "simulated registry outage" >&2
+exit 22
+STUB_NPM_FAIL
+chmod 0755 "$STUB_BIN/npm" "$FAIL_BIN/npm"
+if ! command -v node >/dev/null 2>&1; then
+  skip "node not on PATH; cannot exercise the install script"
+else
+NODE_DIR="$(dirname "$(command -v node)")"
+
+run_install() {
+  _home="$1"
+  PATH="${2:-$STUB_BIN}:$NODE_DIR:/usr/bin:/bin:$_home/.local/bin" \
+    HOME="$_home" PROXY_CA_CERT_B64="${PROXY_CA_CERT_B64:-}" sh "$INSTALL_SCRIPT"
+}
+
+# Hostile HOME: spaces, a literal $, backticks, a double quote, and a shell
+# payload in the directory name. A wrapper that interpolated the path into shell
+# text would execute `touch PWNED` when run.
+HOSTILE_HOME="$IC/home with space \$dollar \`tick\"quote; touch PWNED; #"
+mkdir -p "$HOSTILE_HOME"
+if (cd "$IC" && run_install "$HOSTILE_HOME" >"$WORK/install-hostile.log" 2>&1); then
+  if [ -x "$HOSTILE_HOME/.local/bin/pi" ]; then
+    ok "hostile HOME: installer created the pi wrapper"
+  else
+    bad "hostile HOME: pi wrapper missing"
+  fi
+  if [ "$( "$HOSTILE_HOME/.local/bin/pi" --version 2>/dev/null)" = "stub-pi --version" ]; then
+    ok "hostile HOME: wrapper runs the pi entrypoint"
+  else
+    bad "hostile HOME: wrapper did not run the entrypoint"
+  fi
+  if [ ! -e "$IC/PWNED" ]; then
+    ok "hostile HOME: no shell injection from HOME"
+  else
+    bad "hostile HOME: wrapper injected command from HOME"
+  fi
+  if grep -Fq 'Generated by pi-coding-agent-install.sh' "$HOSTILE_HOME/.local/bin/pi" \
+      && grep -Fq 'pi-real' "$HOSTILE_HOME/.local/bin/pi"; then
+    ok "hostile HOME: wrapper delegates to the sibling pi-real"
+  else
+    bad "hostile HOME: wrapper is malformed"
+  fi
+else
+  bad "hostile HOME: install script exited non-zero (must be fail-soft)"
+  sed 's/^/  | /' "$WORK/install-hostile.log" >&2
+fi
+
+if (cd "$IC" && run_install "$HOSTILE_HOME" >"$WORK/install-second.log" 2>&1) \
+    && grep -Fq 'skipping npm install' "$WORK/install-second.log"; then
+  ok "second boot is idempotent (skips npm when pi runs)"
+else
+  bad "second boot did not take the idempotent path"
+  sed 's/^/  | /' "$WORK/install-second.log" >&2
+fi
+
+rm -f "$HOSTILE_HOME/.local/bin/pi-real"
+if (cd "$IC" && run_install "$HOSTILE_HOME" >"$WORK/install-recover.log" 2>&1) \
+    && grep -Fq 'does not run; attempting reinstall' "$WORK/install-recover.log" \
+    && [ "$( "$HOSTILE_HOME/.local/bin/pi" --version 2>/dev/null)" = "stub-pi --version" ]; then
+  ok "a broken pi-real is detected and repaired on the next boot"
+else
+  bad "a broken pi-real was not repaired"
+  sed 's/^/  | /' "$WORK/install-recover.log" >&2
+fi
+
+NL_HOME="$IC/home
+newline"
+mkdir -p "$NL_HOME"
+if (cd "$IC" && run_install "$NL_HOME" >"$WORK/install-newline.log" 2>&1) \
+    && [ "$( "$NL_HOME/.local/bin/pi" --version 2>/dev/null)" = "stub-pi --version" ]; then
+  ok "HOME containing a newline does not break the wrapper"
+else
+  bad "HOME containing a newline broke the wrapper"
+  sed 's/^/  | /' "$WORK/install-newline.log" >&2
+fi
+
+FAIL_HOME="$IC/fail-home"
+mkdir -p "$FAIL_HOME"
+if (cd "$IC" && run_install "$FAIL_HOME" "$FAIL_BIN" >"$WORK/install-fail.log" 2>&1); then
+  if grep -Fq 'npm install exited 22' "$WORK/install-fail.log" \
+      && [ ! -e "$FAIL_HOME/.local/bin/pi" ]; then
+    ok "npm failure is fail-soft (exit 0, clear message, no half-installed wrapper)"
+  else
+    bad "npm failure did not report cleanly or left a wrapper behind"
+    sed 's/^/  | /' "$WORK/install-fail.log" >&2
+  fi
+else
+  bad "npm failure exited non-zero (must be fail-soft)"
+  sed 's/^/  | /' "$WORK/install-fail.log" >&2
+fi
+
+if PROXY_CA_CERT_B64='not-valid-base64!!!' run_install "$HOSTILE_HOME" >"$WORK/install-ca.log" 2>&1 \
+    && grep -Fq 'failed to base64-decode' "$WORK/install-ca.log"; then
+  ok "malformed PROXY_CA_CERT_B64 is surfaced, not silently swallowed"
+else
+  bad "malformed PROXY_CA_CERT_B64 was not surfaced"
+  sed 's/^/  | /' "$WORK/install-ca.log" >&2
+fi
+fi
+
+info "2. Renderer tests (node:test)"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+  bad "$NODE_BIN is not on PATH (set NODE_BIN to a Node >= 22 binary)"
+elif [ ! -d "$KIT_DIR/node_modules" ]; then
+  if (cd "$KIT_DIR" && npm ci --ignore-scripts --no-audit --no-fund >"$WORK/npm-ci.log" 2>&1); then
+    if (cd "$KIT_DIR" && "$NODE_BIN" --test >"$WORK/test.log" 2>&1); then
+      ok "node --test passes (dependencies installed with npm ci)"
+    else
+      bad "node --test failed"
+      sed 's/^/  | /' "$WORK/test.log" >&2
+    fi
+  else
+    skip "node_modules absent and npm ci failed (offline? run 'npm ci' in the kit dir)"
+    sed 's/^/  | /' "$WORK/npm-ci.log" >&2
+  fi
+elif (cd "$KIT_DIR" && "$NODE_BIN" --test >"$WORK/test.log" 2>&1); then
+  ok "node --test passes"
+else
+  bad "node --test failed"
+  sed 's/^/  | /' "$WORK/test.log" >&2
+fi
+
+info "3. Source-level regression guards"
+if grep -Eq '^PI_VERSION="[0-9]+\.[0-9]+\.[0-9]+"$' "$INSTALL_SCRIPT"; then
+  ok "install script pins an exact reviewed pi version"
+else
+  bad "install script has no exact PI_VERSION pin"
+fi
+if grep -q -- '--ignore-scripts' "$INSTALL_SCRIPT" \
+    && grep -q -- '--no-audit' "$INSTALL_SCRIPT" \
+    && grep -q -- '--prefix "\$NPM_PREFIX"' "$INSTALL_SCRIPT"; then
+  ok "install uses --ignore-scripts/--no-audit with an explicit per-user prefix"
+else
+  bad "install script lost --ignore-scripts, --no-audit, or the explicit npm prefix"
+fi
+if grep -Fq 'NPM_PREFIX="${HOME}/.local"' "$INSTALL_SCRIPT"; then
+  ok "install prefix is \$HOME/.local (on the guest default PATH)"
+else
+  bad "install prefix is not \$HOME/.local"
+fi
+if grep -Fq 'pi --version' "$INSTALL_SCRIPT" && grep -Fq 'does not run; attempting reinstall' "$INSTALL_SCRIPT"; then
+  ok "install verifies pi actually runs before taking the idempotent path"
+else
+  bad "install idempotency only checks command existence, not that pi runs"
+fi
+if grep -Fq 'pi-real' "$INSTALL_SCRIPT" && ! grep -Fq '_pi_escaped' "$INSTALL_SCRIPT"; then
+  ok "install wrapper delegates to a sibling pi-real without embedding a shell-quoted path"
+else
+  bad "install wrapper regressed to path interpolation or lost pi-real"
+fi
+if grep -q 'process.versions.node' "$INSTALL_SCRIPT" && grep -q '22.19.0' "$INSTALL_SCRIPT"; then
+  ok "install gates on Node >= 22.19.0 (pi's engines.node)"
+else
+  bad "install script does not gate on pi's Node engine"
+fi
+
+info "3b. Node engine gate arithmetic"
+node_engine_expr="$(sed -n "s/.*node -e '\(.*\)' 2>\/dev\/null; then/\1/p" "$INSTALL_SCRIPT")"
+if [ -z "$node_engine_expr" ]; then
+  bad "could not extract the Node engine expression from the installer"
+elif ! command -v node >/dev/null 2>&1; then
+  skip "node not on PATH; cannot exercise the engine expression"
+else
+  engine_ok=0
+  for pair in "22.19.0:0" "22.18.9:1" "23.0.0:0" "22.20.0:0" "21.9.0:1"; do
+    version="${pair%%:*}"
+    expected="${pair##*:}"
+    code="${node_engine_expr/process.versions.node/\"$version\"}"
+    if node -e "$code" >/dev/null 2>&1; then actual=0; else actual=1; fi
+    if [ "$actual" != "$expected" ]; then
+      engine_ok=1
+      bad "Node engine gate wrong for $version (expected $expected, got $actual)"
+    fi
+  done
+  [ "$engine_ok" -eq 0 ] && ok "Node engine gate accepts >=22.19.0 and rejects older versions"
+fi
+if grep -q 'trap ' "$INSTALL_SCRIPT" && grep -q 'exit 0' "$INSTALL_SCRIPT"; then
+  ok "install is fail-soft (trap + exit 0; an optional CLI never fails the sandbox)"
+else
+  bad "install is not fail-soft"
+fi
+if grep -Fq 'ACQ_PROVIDER_INPUT_ROOT' "$RENDERER" && grep -Fq '/var/lib/acq/provider-input' "$RENDERER"; then
+  ok "renderer defaults to ACQ_PROVIDER_INPUT_ROOT with the acq fallback path"
+else
+  bad "renderer lost the acq provider-root default"
+fi
+if grep -Fq 'acq-provider-facts/v1' "$RENDERER" && grep -Fq 'acq-neutral-model-catalog/v1' "$RENDERER"; then
+  ok "renderer pins both neutral schema versions"
+else
+  bad "renderer does not pin the neutral schema versions"
+fi
+if grep -Fq '"openai-completions"' "$RENDERER" && grep -Fq 'authHeader: true' "$RENDERER" && grep -Fq 'maxTokens' "$RENDERER"; then
+  ok "renderer contains the neutral -> pi protocol/model mapping"
+else
+  bad "renderer lost part of the neutral -> pi mapping"
+fi
+if grep -Fq 'return "not-ready"' "$RENDERER"; then
+  ok "renderer distinguishes a missing provider root (not-ready) from an empty provider set"
+else
+  bad "renderer no longer leaves config untouched when the provider root is absent"
+fi
+if grep -Fq '(?![\s\S])' "$RENDERER" && grep -Fq 'must not be a symlink' "$RENDERER" && grep -Fq 'lstat(' "$RENDERER"; then
+  ok "renderer keeps schema full-match regexes and rejects symlinked inputs"
+else
+  bad "renderer lost full-match schema semantics or symlink rejection"
+fi
+if grep -Fq 'text.startsWith("https://")' "$RENDERER" && grep -Fq 'maxLength' "$RENDERER"; then
+  ok "renderer enforces lowercase https URLs and schema length limits"
+else
+  bad "renderer lost URL or length schema checks"
+fi
+if grep -Eq '^agent:' "$KIT_DIR/spec.yaml"; then
+  bad "spec declares an agent: block; pi is an opt-in --kit mixin, not an acq-built-in agent"
+else
+  ok "spec declares no agent: block"
+fi
+if grep -Fq 'registry.npmjs.org' "$KIT_DIR/spec.yaml"; then
+  allowed_hosts="$(awk '
+    /^[[:space:]]*allow:/ { inside=1; next }
+    inside && /^[[:space:]]*#/ { next }
+    inside && /^[[:space:]]*$/ { next }
+    inside && /^[[:space:]]*- / { print $2; next }
+    inside { exit }
+  ' "$KIT_DIR/spec.yaml")"
+  if [ "$allowed_hosts" = "registry.npmjs.org" ]; then
+    ok "network allow-list is the install host only (provider egress belongs to the provider kit)"
+  else
+    bad "spec network allow-list contains unexpected hosts: ${allowed_hosts:-<none>}"
+  fi
+else
+  bad "spec does not allow-list registry.npmjs.org"
+fi
+
+info "4. acq neutral-spec validation (optional)"
+if command -v acq >/dev/null 2>&1 && acq kit validate --help >/dev/null 2>&1; then
+  if acq kit validate "$KIT_DIR" >"$WORK/kit-validate.log" 2>&1; then
+    ok "acq kit validate accepts the hybrid/v1 spec"
+  else
+    bad "acq kit validate rejected the spec"
+    sed 's/^/  | /' "$WORK/kit-validate.log" >&2
+  fi
+else
+  skip "acq kit validate not available"
+fi
+
+if [ "$RUN_ACQ" != "1" ]; then
+  info "5. Live sandbox check"
+  skip "RUN_ACQ=1 not set — skipped live acq/msb verification"
+  info "Summary"
+  printf '  %d passed, %d failed\n' "$pass" "$fail"
+  [ "$fail" -eq 0 ] && printf '  \033[32mOffline gate passed.\033[0m\n' || printf '  \033[31mOffline gate failed — see above.\033[0m\n'
+  exit "$([ "$fail" -eq 0 ] && echo 0 || echo 1)"
+fi
+
+info "5. Live preconditions"
+if ! command -v acq >/dev/null 2>&1; then
+  bad "acq not on PATH"
+  exit 1
+fi
+ok "acq on PATH"
+
+# The live contract depends on acq's provider/agent decoupling. Detect it
+# explicitly: an acq without the provider-credential surface cannot materialize
+# provider input, so a create attempt would fail for a reason unrelated to this
+# kit. Report SKIP, not a false FAIL.
+if ! acq --help 2>&1 | grep -q 'provider-credential'; then
+  skip "installed acq predates provider/agent decoupling (no provider-credential command)"
+  skip "live verification is pending the unmerged acq PR 611; offline gate still authoritative"
+  info "Summary"
+  printf '  %d passed, %d failed\n' "$pass" "$fail"
+  [ "$fail" -eq 0 ] && printf '  \033[32mOffline gate passed; live checks skipped.\033[0m\n' || printf '  \033[31mOffline gate failed — see above.\033[0m\n'
+  exit "$([ "$fail" -eq 0 ] && echo 0 || echo 1)"
+fi
+ok "acq exposes provider-credential (decoupled provider input available)"
+
+if ! acq backend list 2>/dev/null | grep -q 'msb'; then
+  bad "msb backend not detected"
+  exit 1
+fi
+ok "msb backend detected"
+
+info "6. Register the provider credential binding (name only; no secret value)"
+# The binding is metadata: providerId -> credential env name. It records where
+# the runtime key comes from; the key value is set separately by the operator.
+if acq provider-credential set opencode-go OPENCODE_GO_API_KEY --host opencode.ai </dev/null >"$WORK/credential.log" 2>&1; then
+  ok "provider-credential binding registered for opencode-go"
+else
+  skip "provider-credential binding not registered (may already exist or need operator setup)"
+  sed 's/^/  | /' "$WORK/credential.log" >&2
+fi
+
+info "7. Create sandbox with provider kit + agent kit"
+printf '  creating %s via acq/msb...\n' "$SBX_NAME"
+if acq --backend msb create --name "$SBX_NAME" \
+    --kit "$PROVIDER_KIT" \
+    --kit "$KIT_DIR" \
+    opencode "$WORK" </dev/null >"$CREATE_LOG" 2>&1; then
+  ok "sandbox created with both kits"
+else
+  bad "acq create failed"
+  sed 's/^/  | /' "$CREATE_LOG" >&2
+  exit 1
+fi
+
+in_sbx() {
+  acq --backend msb exec "$SBX_NAME" -- sh -c "$1" </dev/null 2>/dev/null || true
+}
+
+info "8. Wait for startup install/render (up to ${READY_TIMEOUT}s)"
+deadline=$(( $(date +%s) + READY_TIMEOUT ))
+while :; do
+  if [ -n "$(in_sbx 'command -v pi')" ]; then
+    break
+  fi
+  [ "$(date +%s)" -ge "$deadline" ] && break
+  sleep "$POLL_INTERVAL"
+done
+
+info "9. pi is on the default guest PATH (bare, unmodified sh -c)"
+pi_path="$(in_sbx 'command -v pi')"
+if [ -n "$pi_path" ]; then
+  ok "pi resolves on the default PATH ($pi_path)"
+else
+  bad "pi not found on the default PATH after ${READY_TIMEOUT}s (install.log follows)"
+  in_sbx 'tail -n 40 "$HOME/.local/state/pi-coding-agent/install.log" 2>/dev/null || true' | sed 's/^/  | /'
+fi
+
+info "9b. Credential environment is injected into the exec session"
+if [ "$(in_sbx 'test -n "$OPENCODE_GO_API_KEY" && echo yes')" = "yes" ]; then
+  ok "OPENCODE_GO_API_KEY is present in the sandbox exec environment"
+else
+  bad "OPENCODE_GO_API_KEY is not injected; pi will report no available models even with a correct models.json"
+fi
+
+info "10. Renderer produced models.json for the selected provider generation"
+models_json="$(in_sbx 'cat "$HOME/.pi/agent/models.json" 2>/dev/null')"
+if printf '%s' "$models_json" | grep -q '"opencode-go"' \
+    && printf '%s' "$models_json" | grep -q 'https://opencode.ai/inference/go/openai/v1' \
+    && printf '%s' "$models_json" | grep -q '"\$OPENCODE_GO_API_KEY"'; then
+  ok "models.json carries the opencode-go provider, base URL, and env-var credential reference"
+else
+  bad "models.json is missing the rendered opencode-go provider"
+  printf '%s\n' "$models_json" | sed 's/^/  | /' >&2
+fi
+
+info "11. pi --list-models lists the provider's neutral catalog"
+list_out="$(in_sbx 'pi --list-models 2>&1')"
+printf '%s\n' "$list_out" | sed 's/^/  | /'
+missing=0
+for model_id in glm-5.3-flash deepseek-v4-pro kimi-k3.1-pro; do
+  if printf '%s' "$list_out" | grep -q -- "$model_id"; then
+    ok "pi --list-models contains $model_id"
+  else
+    bad "pi --list-models does not contain $model_id"
+    missing=$((missing+1))
+  fi
+done
+
+info "Summary"
+printf '  %d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ] && printf '  \033[32mAll checks passed.\033[0m\n' || printf '  \033[31mSome checks failed — see notes above.\033[0m\n'
+
+[ "$fail" -eq 0 ]
