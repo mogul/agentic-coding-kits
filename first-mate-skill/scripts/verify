@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+#
+# verify — host-side offline gate for the first-mate-skill acq mixin kit.
+#
+# Checks that the spec and the payload under files/ agree, that the skill is
+# well-formed, that the helper scripts parse, and that nothing credential-shaped
+# is shipped. If `acq kit validate` is available, the neutral hybrid/v1 spec is
+# validated too. There is no live sandbox check: the kit only drops files.
+#
+# Usage (from anywhere): path/to/first-mate-skill/scripts/verify
+
+set -uo pipefail
+
+KIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SPEC="$KIT_DIR/spec.yaml"
+SKILL_NAME="paseo-first-mate"
+SKILL_DIR="$KIT_DIR/files/home/.agents/skills/$SKILL_NAME"
+SKILL_MD="$SKILL_DIR/SKILL.md"
+CHECK_PY="$SKILL_DIR/assets/first-mate-check.py"
+WAIT_SH="$SKILL_DIR/assets/first-mate-wait.sh"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/first-mate-skill-verify.XXXXXX")" || { echo "mktemp failed" >&2; exit 1; }
+
+pass=0
+fail=0
+ok()   { printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass+1)); }
+bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=$((fail+1)); }
+skip() { printf '  \033[33mSKIP\033[0m %s\n' "$1"; }
+info() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+trap 'rm -rf "$WORK" >/dev/null 2>&1 || true' EXIT INT TERM
+
+info "0. Preconditions"
+for f in "$SPEC" "$SKILL_MD" "$CHECK_PY" "$WAIT_SH"; do
+  if [ -f "$f" ]; then
+    ok "present: ${f#"$KIT_DIR"/}"
+  else
+    bad "missing: ${f#"$KIT_DIR"/}"
+  fi
+done
+if [ "$fail" -ne 0 ]; then
+  printf '\n  %d passed, %d failed\n' "$pass" "$fail"
+  exit 1
+fi
+
+info "1. Spec and payload agree"
+# Every files[].source must exist, and every file under files/ must be listed:
+# msb materializes only the listed records, so an unlisted file is silently
+# missing in one backend and present in the other.
+listed="$WORK/listed.txt"
+actual="$WORK/actual.txt"
+awk '/^files:/ {f=1; next} /^[A-Za-z]/ {f=0} f && /^[[:space:]]+source:[[:space:]]/ {sub(/^[[:space:]]+source:[[:space:]]+/, ""); print}' "$SPEC" | LC_ALL=C sort > "$listed"
+(cd "$KIT_DIR" && find files -type f | LC_ALL=C sort) > "$actual"
+if diff -u "$listed" "$actual" >"$WORK/diff.log" 2>&1; then
+  ok "files[].source entries match every file under files/ ($(wc -l < "$listed" | tr -d ' ') files)"
+else
+  bad "spec files[] and files/ tree differ (- listed, + on disk)"
+  sed 's/^/  | /' "$WORK/diff.log" >&2
+fi
+while IFS= read -r src; do
+  [ -f "$KIT_DIR/$src" ] || bad "source does not exist: $src"
+done < "$listed"
+
+info "2. Declared modes are right and the scripts are executable on disk"
+for pair in "SKILL.md:0644" "assets/first-mate-check.py:0755" "assets/first-mate-wait.sh:0755"; do
+  rel="${pair%%:*}"
+  want="${pair##*:}"
+  guest="/home/agent/.agents/skills/$SKILL_NAME/$rel"
+  got="$(awk -v p="$guest" '$0 == "  - path: " p {f=1; next} f && /mode:/ {gsub(/"/,"",$2); print $2; exit}' "$SPEC")"
+  if [ "$got" = "$want" ]; then
+    ok "$rel mode $want"
+  else
+    bad "$rel: spec mode '${got:-<none>}', expected $want"
+  fi
+done
+for script in "$CHECK_PY" "$WAIT_SH"; do
+  if [ -x "$script" ]; then
+    ok "${script#"$KIT_DIR"/} is executable on disk"
+  else
+    bad "${script#"$KIT_DIR"/} lost its executable bit"
+  fi
+done
+
+info "3. Skill frontmatter"
+fm_name="$(awk 'NR==1 && $0=="---" {f=1; next} f && $0=="---" {exit} f && /^name:/ {sub(/^name:[[:space:]]*/,""); gsub(/"/,""); print; exit}' "$SKILL_MD")"
+if [ "$fm_name" = "$SKILL_NAME" ]; then
+  ok "SKILL.md name matches its directory ($SKILL_NAME)"
+else
+  bad "SKILL.md name '${fm_name:-<none>}' does not match directory '$SKILL_NAME'"
+fi
+if [ "$(head -n 1 "$SKILL_MD")" = "---" ] && awk 'NR>1 && $0=="---" {found=1} END {exit !found}' "$SKILL_MD"; then
+  ok "SKILL.md has a closed frontmatter block"
+else
+  bad "SKILL.md frontmatter is not delimited by ---"
+fi
+for asset in first-mate-check.py first-mate-wait.sh; do
+  if grep -q "assets/$asset" "$SKILL_MD"; then
+    ok "SKILL.md references assets/$asset"
+  else
+    bad "SKILL.md does not reference assets/$asset"
+  fi
+done
+
+info "4. Helper scripts parse"
+if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  if "$PYTHON_BIN" -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])' "$CHECK_PY" 2>"$WORK/py.log"; then
+    ok "first-mate-check.py parses as Python 3"
+  else
+    bad "first-mate-check.py has a syntax error"
+    sed 's/^/  | /' "$WORK/py.log" >&2
+  fi
+else
+  skip "$PYTHON_BIN not installed"
+fi
+if bash -n "$WAIT_SH" 2>"$WORK/sh.log"; then
+  ok "first-mate-wait.sh parses as bash"
+else
+  bad "first-mate-wait.sh has a syntax error"
+  sed 's/^/  | /' "$WORK/sh.log" >&2
+fi
+if command -v shellcheck >/dev/null 2>&1; then
+  if shellcheck --severity=warning "$WAIT_SH" "$0" >"$WORK/shellcheck.log" 2>&1; then
+    ok "shellcheck --severity=warning passes"
+  else
+    bad "shellcheck --severity=warning failed"
+    sed 's/^/  | /' "$WORK/shellcheck.log" >&2
+  fi
+else
+  skip "shellcheck not installed (install it to run this gate)"
+fi
+
+info "5. Shipped detector has no baked-in watch targets"
+# `list` prints the watch list without calling GitHub or Paseo. It must come
+# back with no PRs, issues, or releases, so nothing is hard-coded to a repo.
+if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  mkdir -p "$WORK/state"
+  if FIRST_MATE_DIR="$WORK/state" "$PYTHON_BIN" "$CHECK_PY" list >"$WORK/list.out" 2>"$WORK/list.err" \
+    && "$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if not (d.get("repos") or d.get("prs") or d.get("issues") or d.get("releases")) else 1)' "$WORK/list.out"; then
+    ok "first-mate-check.py ships with an empty watch list"
+  else
+    bad "first-mate-check.py list failed or returned a non-empty watch list"
+    sed 's/^/  | /' "$WORK/list.err" >&2
+  fi
+else
+  skip "$PYTHON_BIN not installed"
+fi
+
+info "6. No credential-shaped content"
+# Names of variables may appear in prose; values must not.
+scan_rc=0
+grep -rEn \
+  -e 'gh[pousr]_[A-Za-z0-9]{20,}' \
+  -e 'github_pat_[A-Za-z0-9_]{20,}' \
+  -e 'sk-[A-Za-z0-9]{20,}' \
+  -e 'AKIA[0-9A-Z]{16}' \
+  -e 'BEGIN [A-Z ]*PRIVATE KEY' \
+  "$KIT_DIR" --exclude=verify >"$WORK/secrets.log" 2>&1 || scan_rc=$?
+case "$scan_rc" in
+  1) ok "no token, key, or private-key patterns in the kit (payload and docs)" ;;
+  0) bad "credential-shaped string found"; sed 's/^/  | /' "$WORK/secrets.log" >&2 ;;
+  *) bad "credential scan could not run (grep exit $scan_rc)"; sed 's/^/  | /' "$WORK/secrets.log" >&2 ;;
+esac
+
+info "7. acq neutral-spec validation (optional)"
+if command -v acq >/dev/null 2>&1; then
+  if acq kit validate "$KIT_DIR" >"$WORK/kit-validate.log" 2>&1; then
+    ok "acq kit validate accepts the hybrid/v1 spec"
+  else
+    bad "acq kit validate rejected the spec"
+    sed 's/^/  | /' "$WORK/kit-validate.log" >&2
+  fi
+else
+  skip "acq kit validate not available"
+fi
+
+info "Summary"
+printf '  %d passed, %d failed\n' "$pass" "$fail"
+if [ "$fail" -eq 0 ]; then
+  printf '  \033[32mOffline gate passed.\033[0m\n'
+  exit 0
+fi
+printf '  \033[31mOffline gate failed — see above.\033[0m\n'
+exit 1

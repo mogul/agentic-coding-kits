@@ -39,6 +39,9 @@ jobs:
       - name: Run pi agent-kit offline verification
         run: bash pi-coding-agent/scripts/verify
 
+      - name: Run first-mate skill-kit offline verification
+        run: bash first-mate-skill/scripts/verify
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -56,7 +59,7 @@ jobs:
           ref: a290d5d80737fc739e7ec139da0eeaf438631631
           path: .patterns
 
-      - name: Validate pi agent-kit spec with the patterns validator (when present)
+      - name: Validate agent-kit and skill-kit specs with the patterns validator (when present)
         shell: bash
         run: |
           set -euo pipefail
@@ -68,13 +71,18 @@ jobs:
             exit 0
           fi
           work="$(mktemp -d)"
-          kit="$work/integrations/isolation/acq-kits/pi-coding-agent"
-          mkdir -p "$work/schemas" "$kit"
+          mkdir -p "$work/schemas" "$work/integrations/isolation/acq-kits"
           cp "$schema" "$work/schemas/"
-          cp pi-coding-agent/spec.yaml pi-coding-agent/README.md "$kit/"
-          cp -R pi-coding-agent/files "$kit/files"
-          printf 'schemaVersion: "acq-kits-registry/v1"\nkits:\n  pi-coding-agent:\n    backends: [sbx, msb]\n    parity: CI validation entry.\n' \
+          printf 'schemaVersion: "acq-kits-registry/v1"\nkits:\n' \
             > "$work/integrations/isolation/acq-kits/kits.yaml"
+          for name in pi-coding-agent first-mate-skill; do
+            kit="$work/integrations/isolation/acq-kits/$name"
+            mkdir -p "$kit"
+            cp "$name/spec.yaml" "$name/README.md" "$kit/"
+            cp -R "$name/files" "$kit/files"
+            printf '  %s:\n    backends: [sbx, msb]\n    parity: CI validation entry.\n' "$name" \
+              >> "$work/integrations/isolation/acq-kits/kits.yaml"
+          done
           python "$validator" --root "$work" --strict
 
       - name: Validate provider input with a patched credential binding

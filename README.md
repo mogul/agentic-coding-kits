@@ -1,6 +1,6 @@
 # Agentic Coding Kits
 
-Provider kits and agent kits for
+Provider kits, agent kits, and skill kits for
 [`acq`](https://github.com/GSA-TTS/agentic-coding-quickstart), the sandbox
 wrapper used by the GSA-TTS
 [agentic-coding-quickstart](https://github.com/GSA-TTS/agentic-coding-quickstart)
@@ -9,13 +9,16 @@ project.
 - A **provider kit** describes a model provider once, in a harness-neutral form:
   protocol, host, base URL, models URL, credential variable name, and a neutral
   model catalog. It names no coding agent and writes no agent configuration.
+- A **skill kit** drops an Agent Skill into the guest's skills root. It installs
+  nothing, runs nothing, and needs no network access.
 - An **agent kit** installs a coding agent and renders the selected provider
   generation into that agent's own configuration. It owns the agent config and
   nothing else.
 
 The two compose at sandbox creation: a provider that speaks the provider's
 protocol can be consumed by any agent kit that implements the neutral → harness
-mapping.
+mapping. A skill kit is independent of both and composes with any
+of them.
 
 This repository is separate from
 [agentic-coding-patterns](https://github.com/GSA-TTS/agentic-coding-patterns),
@@ -59,6 +62,7 @@ An agent kit is a `hybrid/v1` mixin that:
 | --- | --- | --- | --- |
 | [`opencode-go-provider/`](opencode-go-provider/) | Provider | OpenCode Go (`openai-compatible`) facts and a 19-model neutral catalog | **Preview** — blocked on the acq credential-binding addition |
 | [`pi-coding-agent/`](pi-coding-agent/) | Agent | Pinned pi CLI + `~/.pi/agent/models.json` renderer | **Preview** — live verification pending acq PR 611 |
+| [`first-mate-skill/`](first-mate-skill/) | Skill | The `paseo-first-mate` Agent Skill and two helper scripts, dropped into `~/.agents/skills` | Offline-verified; no live sandbox run |
 
 **Preview status.**
 
@@ -99,6 +103,11 @@ pi-coding-agent/              agent kit
   files/home/                 installer and provider-input renderer
   scripts/verify              offline gate + optional live acq/msb check
   tests/                      node:test suite, fixtures, vendored schemas
+  docs/decisions/             design records
+first-mate-skill/             skill kit
+  spec.yaml                   hybrid/v1 mixin definition (file drops only)
+  files/home/.agents/skills/  the paseo-first-mate skill and its assets
+  scripts/verify              offline gate
   docs/decisions/             design records
 ```
 

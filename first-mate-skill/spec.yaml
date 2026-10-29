@@ -1,0 +1,53 @@
+# spec.yaml — first-mate-skill (a neutral acq mixin kit, hybrid/v1)
+#
+# SKILL KIT: drops the paseo-first-mate Agent Skill (SKILL.md plus two bundled
+# helper scripts) into the cross-agent skills root, ~/.agents/skills, which
+# OpenCode, Codex, Docker Agent, and Copilot all scan. It carries no agent, no
+# provider, and no configuration.
+#
+# NO COMMANDS: the payload is dropped at its final path, so there is nothing to
+# link, install, or render. Nothing here can fail a sandbox create beyond the
+# file drop itself.
+#
+# NO EGRESS: the skill is instructions plus two local scripts. The scripts call
+# the `gh` and `paseo` CLIs when the agent runs them, and those CLIs' network
+# needs belong to the sandbox's other kits, not to this one.
+#
+# NO `agent:` BLOCK and NO published ports: this is an opt-in --kit mixin.
+#
+# The skill content is a one-time snapshot of the author's working copy; see
+# docs/decisions/0001-ship-the-first-mate-skill-as-a-snapshot-kit.md for how to
+# update it.
+schemaVersion: "hybrid/v1"
+kind: mixin
+name: first-mate-skill
+displayName: Paseo First Mate skill
+description: >
+  Drops the paseo-first-mate Agent Skill and its two helper scripts into
+  ~/.agents/skills so a coding agent in the sandbox can coordinate a
+  multi-issue effort through Paseo workspaces and GitHub. Opt-in mixin; no
+  egress, commands, or ports.
+
+files:
+  - path: /home/agent/.agents/skills/paseo-first-mate/SKILL.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/SKILL.md
+    description: The paseo-first-mate skill instructions
+  - path: /home/agent/.agents/skills/paseo-first-mate/assets/first-mate-check.py
+    mode: "0755"
+    source: files/home/.agents/skills/paseo-first-mate/assets/first-mate-check.py
+    description: Change detector for watched PRs, issues, releases, agents, and permissions
+  - path: /home/agent/.agents/skills/paseo-first-mate/assets/first-mate-wait.sh
+    mode: "0755"
+    source: files/home/.agents/skills/paseo-first-mate/assets/first-mate-wait.sh
+    description: Background wait loop that runs the change detector until it reports a change
+
+agentContext: |
+  ## Paseo First Mate skill
+
+  The `paseo-first-mate` skill is installed at
+  `~/.agents/skills/paseo-first-mate/`. Load it when the user asks you to
+  coordinate several agents, issues, or dependent pull requests. Its helper
+  scripts are in the skill's `assets/` directory; copy them into the
+  coordinator worktree's git-ignored `tmp/` as the skill describes rather than
+  running them in place.
