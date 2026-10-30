@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/tests/*" = ["S101", "S603", "S607"]
+# argv-only calls use an allowlisted kit and resolved executables, never a shell.
+"scripts/run-kit-tests.py" = ["S603"]
+"scripts/validate-kits.py" = ["S603"]
+"claude-code/tests/*" = ["S101", "S603", "S607"]
+"claude-code/scripts/test" = ["S603", "S607"]
+"claude-code/scripts/verify" = ["S603", "S607"]
+
+[tool.pytest.ini_options]
+testpaths = ["scripts/tests"]
