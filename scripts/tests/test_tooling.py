@@ -169,6 +169,7 @@ def test_wrong_patterns_pin_fails(kits, monkeypatch):
 
 @pytest.mark.parametrize("missing", ["validator", "schema", "provider"])
 def test_missing_upstream_inputs_fail(kits, tmp_path, monkeypatch, missing):
+    monkeypatch.setattr(validator, "validate_git_executable_modes", lambda root: None)
     patterns = tmp_path / "patterns"
     paths = {
         "validator": "integrations/isolation/acq-kits/validate-kits.py",
@@ -191,6 +192,7 @@ def test_missing_upstream_inputs_fail(kits, tmp_path, monkeypatch, missing):
 
 
 def test_provider_binding_patch_is_local_and_upstream_validation_is_strict(kits, tmp_path, monkeypatch):
+    monkeypatch.setattr(validator, "validate_git_executable_modes", lambda root: None)
     patterns = tmp_path / "patterns"
     inputs = [
         "integrations/isolation/acq-kits/validate-kits.py",
@@ -225,3 +227,38 @@ def test_provider_binding_patch_is_local_and_upstream_validation_is_strict(kits,
     assert "--strict" in calls[1]
     assert calls[2][-2:] == ["--bundle", str(kits / "opencode-go-provider/provider-input.json")]
     assert json.loads(binding.read_text()) == {"providers": {"usai": "USAI_API_KEY"}}
+
+
+@pytest.mark.parametrize("index_mode, disk_mode, passes", [("100644", 0o755, False), ("100755", 0o644, True)])
+def test_git_mode_check_is_independent_of_shared_mount(kits, monkeypatch, index_mode, disk_mode, passes):
+    target = kits / "claude-code/files/.hidden/payload"
+    target.chmod(disk_mode)
+    (kits / "claude-code/spec.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "claude-code",
+                "files": [{"source": "files/.hidden/payload", "mode": "0755"}],
+            }
+        )
+    )
+    entries = [
+        ("100755", "scripts/validate-kits.py"),
+        ("100755", "scripts/run-kit-tests.py"),
+        (index_mode, "claude-code/files/.hidden/payload"),
+    ]
+    output = "".join(f"{mode} {'a' * 40} 0\t{name}\0" for mode, name in entries)
+    monkeypatch.setattr(validator.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, output))
+    if passes:
+        validator.validate_git_executable_modes(kits)
+    else:
+        with pytest.raises(ValueError, match="Git index must record"):
+            validator.validate_git_executable_modes(kits)
+
+
+def test_git_mode_check_rejects_untracked_or_unmerged_scripts(kits, monkeypatch):
+    for output in ("", f"100755 {'a' * 40} 2\tscripts/validate-kits.py\0"):
+        monkeypatch.setattr(
+            validator.subprocess, "run", lambda *a, output=output, **kw: subprocess.CompletedProcess(a, 0, output)
+        )
+        with pytest.raises(ValueError, match="stage 0"):
+            validator.validate_git_executable_modes(kits)

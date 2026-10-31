@@ -36,6 +36,56 @@ def discover_kits(root: Path) -> list[Path]:
     return kits
 
 
+def validate_git_executable_modes(root: Path) -> None:
+    """Check what a fresh checkout receives, independently of mount permissions."""
+    expected = {"scripts/validate-kits.py", "scripts/run-kit-tests.py"}
+    for kit in discover_kits(root):
+        spec = yaml.safe_load((kit / "spec.yaml").read_text(encoding="utf-8"))
+        if not isinstance(spec, dict):
+            raise ValueError(f"{kit.name}: spec must be an object")
+        for entry in spec.get("files", []):
+            if not isinstance(entry, dict) or "source" not in entry:
+                continue
+            try:
+                executable = int(str(entry.get("mode", "0")), 8) & 0o111
+            except ValueError:
+                raise ValueError(f"{kit.name}: invalid payload mode") from None
+            if executable:
+                expected.add((kit.relative_to(root) / entry["source"]).as_posix())
+        manifest = kit / "provider-input.json"
+        if manifest.is_file():
+            bundle = json.loads(manifest.read_text(encoding="utf-8"))
+            if not isinstance(bundle, dict) or not isinstance(bundle.get("normalizerPath"), str):
+                raise ValueError(f"{kit.name}: provider manifest requires normalizerPath")
+            expected.add((kit.relative_to(root) / bundle["normalizerPath"]).as_posix())
+        for name in ("test", "verify"):
+            script = kit / "scripts" / name
+            if script.is_file():
+                expected.add(script.relative_to(root).as_posix())
+    git = shutil.which("git")
+    if git is None:
+        raise ValueError("git is required to verify recorded executable modes")
+    result = subprocess.run(
+        [git, "-C", str(root), "ls-files", "--stage", "-z"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    records = {}
+    for record in result.stdout.split("\0"):
+        if not record:
+            continue
+        metadata, name = record.split("\t", 1)
+        mode, _, stage = metadata.split()
+        records.setdefault(name, []).append((mode, stage))
+    failures = [name for name in sorted(expected) if records.get(name) != [("100755", "0")]]
+    if failures:
+        raise ValueError(
+            "Git index must record executable scripts as 100755 (stage 0); "
+            "stage new files and use git update-index --chmod=+x for intended scripts: " + ", ".join(failures)
+        )
+
+
 def validate_local_docs_and_modes(kit: Path) -> None:
     for document in kit.rglob("*.md"):
         if any(part in {"node_modules", "__pycache__", ".pytest_cache"} for part in document.parts):
@@ -100,6 +150,7 @@ def validate(root: Path, patterns: Path) -> None:
     ).stdout.strip()
     if actual != PATTERNS_REF:
         raise ValueError(f"Patterns checkout must be pinned to {PATTERNS_REF}, got {actual}")
+    validate_git_executable_modes(root)
     validator = require_file(patterns / "integrations/isolation/acq-kits/validate-kits.py")
     provider_validator = require_file(patterns / "scripts/validate_provider_input_contract.py")
     schema_dir = patterns / "integrations/isolation/schemas"

@@ -114,6 +114,18 @@ first-mate-skill/             skill kit
 
 New kits follow the same directory contract and get a row in the table above.
 
+### Executable scripts on shared mounts
+
+Shared host/microVM mounts can report filesystem permissions differently from
+Git's recorded modes. Validation checks both declared executable payloads and
+Git index entries for executable scripts, including normalizers and test/verify
+entrypoints. An executable script must be staged with mode `100755`; checking
+only `test -x` locally does not prove a fresh CI checkout will be executable.
+For an intended executable, stage it and run
+`git update-index --chmod=+x <script>`. Do not mark every file executable or
+automatically change `core.fileMode` on mounts that do not preserve modes.
+Validation reports mismatches and never changes permissions or the index.
+
 The Claude Code kit can compose with the separate Patterns Paseo kit for browser
 access. It does not include Paseo or write Paseo's model catalog. Its README
 explains the [upstream picker limitation](https://github.com/getpaseo/paseo/issues/8321)
