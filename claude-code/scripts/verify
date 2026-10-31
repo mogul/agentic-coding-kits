@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Offline kit check plus opt-in real wrapper probe in an existing sandbox."""
+
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+KIT = Path(__file__).resolve().parents[1]
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--sandbox", help="existing configured sandbox; never creates/deletes a VM")
+parser.add_argument("--acq", default="acq", help="acq executable; use the absolute tested checkout path")
+args = parser.parse_args()
+commands = [
+    [sys.executable, str(KIT.parent / "scripts/validate-kits.py")],
+    [sys.executable, str(KIT / "scripts/test")],
+]
+for command in commands:
+    if subprocess.run(command).returncode:
+        sys.exit(1)
+if not args.sandbox or not shutil.which(args.acq):
+    print("UNVERIFIED: live microVM/PTY/provider checks require acq and --sandbox")
+    sys.exit(3)
+for command in (["claude", "--version"], ["claude", "-p", "--tools", "", "Reply exactly ACQ_OK"]):
+    result = subprocess.run(
+        [args.acq, "exec", args.sandbox, "--", *command], capture_output=True, text=True, timeout=180
+    )
+    expected = "2.1.314" if "--version" in command else "ACQ_OK"
+    if result.returncode or expected not in result.stdout:
+        print("FAIL: guest Claude wrapper/version/provider probe failed; sensitive output withheld")
+        sys.exit(1)
+print("PASS: offline checks and real guest wrapper/provider probes")
+print("UNVERIFIED: human interactive PTY and optional browser composition require manual checks")
+sys.exit(3)

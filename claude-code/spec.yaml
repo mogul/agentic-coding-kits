@@ -1,0 +1,69 @@
+schemaVersion: "hybrid/v1"
+kind: mixin
+name: claude-code
+displayName: Claude Code (OpenAI-compatible gateway)
+description: >
+  Installs pinned Claude Code for Linux x64 or ARM64 and a hash-locked LiteLLM
+  Messages-to-Chat-Completions bridge. The host reaches Claude's TUI through
+  acq's terminal connection. Each invocation owns an authenticated guest-loopback
+  proxy, with no published model API or desktop requirement. Provider facts,
+  model snapshots, and credentials come from acq, not this kit.
+agent:
+  name: claude
+  entrypoint: claude
+caps:
+  network:
+    allow:
+      - registry.npmjs.org
+      - pypi.org
+      - files.pythonhosted.org
+files:
+  - path: /home/agent/claude-code/install.py
+    mode: "0755"
+    source: files/home/claude-code/install.py
+  - path: /home/agent/claude-code/provider.py
+    mode: "0644"
+    source: files/home/claude-code/provider.py
+  - path: /home/agent/claude-code/proxy.py
+    mode: "0644"
+    source: files/home/claude-code/proxy.py
+  - path: /home/agent/claude-code/launch.py
+    mode: "0755"
+    source: files/home/claude-code/launch.py
+  - path: /home/agent/claude-code/stream.py
+    mode: "0644"
+    source: files/home/claude-code/stream.py
+  - path: /home/agent/claude-code/models.py
+    mode: "0644"
+    source: files/home/claude-code/models.py
+  - path: /home/agent/claude-code/requirements.lock
+    mode: "0644"
+    source: files/home/claude-code/requirements.lock
+  - path: /home/agent/.local/bin/claude
+    mode: "0755"
+    source: files/home/.local/bin/claude
+commands:
+  - phase: startup
+    user: "1000"
+    description: Install pinned Claude Code and its locked translation bridge as the agent user
+    command:
+      - python3
+      - /home/agent/claude-code/install.py
+      - --apply
+agentContext: |
+  ## Claude Code through an OpenAI-compatible gateway
+
+  Run `claude` in the host-attached guest terminal. It starts a private
+  authenticated proxy and routes Claude's Messages API to the selected
+  provider's OpenAI Chat Completions API. No Anthropic subscription login,
+  display, or published proxy port is needed. Permission prompts remain active.
+
+  ACQ_PROVIDER_INPUT_ROOT must be materialized before launch; model credentials
+  must be injected by acq. With several providers, set ACQ_CLAUDE_PROVIDER.
+  ACQ_CLAUDE_MODEL, ACQ_CLAUDE_SMALL_MODEL and ACQ_CLAUDE_OPUS_MODEL override
+  the provider catalog's recommendations. Models must exist in that snapshot.
+
+  This bridge supports text and ordinary function tools, not Anthropic-native
+  server tools, extended thinking, prompt caching, or exact token counting.
+  The separate Paseo kit can publish its agent browser UI on guest port 6767;
+  the model proxy must remain private. See this kit's README for composition.

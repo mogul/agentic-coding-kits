@@ -1,0 +1,6 @@
+# Shared CI tools; regenerate with uv pip compile --generate-hashes.
+jsonschema==4.26.0
+PyYAML==6.0.3
+pytest==9.1.1
+ruff==0.17.0
+pip-audit==2.10.1

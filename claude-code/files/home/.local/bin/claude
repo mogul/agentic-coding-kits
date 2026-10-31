@@ -1,0 +1,4 @@
+#!/bin/sh
+# The per-user prefix is independent of interactive shell PATH initialization.
+set -eu
+exec "$HOME/.local/share/acq/claude-code/venv/bin/python" "$HOME/claude-code/launch.py" "$@"

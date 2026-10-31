@@ -60,6 +60,7 @@ An agent kit is a `hybrid/v1` mixin that:
 
 | Kit | Kind | Provides | Status |
 | --- | --- | --- | --- |
+| [`claude-code/`](claude-code/) | Agent | Pinned Claude Code + private Messages-to-Chat-Completions proxy for a configured OpenAI-shaped model provider | **Experimental** — operator-verified on ARM64 MSB; x64 execution pending; browser model picker overstates availability |
 | [`opencode-go-provider/`](opencode-go-provider/) | Provider | OpenCode Go (`openai-compatible`) facts and a 19-model neutral catalog | **Preview** — blocked on the acq credential-binding addition |
 | [`pi-coding-agent/`](pi-coding-agent/) | Agent | Pinned pi CLI + `~/.pi/agent/models.json` renderer | **Preview** — live verification pending acq PR 611 |
 | [`first-mate-skill/`](first-mate-skill/) | Skill | The `paseo-first-mate` Agent Skill and two helper scripts, dropped into `~/.agents/skills` | Offline-verified; no live sandbox run |
@@ -113,6 +114,23 @@ first-mate-skill/             skill kit
 
 New kits follow the same directory contract and get a row in the table above.
 
+### Executable scripts on shared mounts
+
+Shared host/microVM mounts can report filesystem permissions differently from
+Git's recorded modes. Validation checks both declared executable payloads and
+Git index entries for executable scripts, including normalizers and test/verify
+entrypoints. An executable script must be staged with mode `100755`; checking
+only `test -x` locally does not prove a fresh CI checkout will be executable.
+For an intended executable, stage it and run
+`git update-index --chmod=+x <script>`. Do not mark every file executable or
+automatically change `core.fileMode` on mounts that do not preserve modes.
+Validation reports mismatches and never changes permissions or the index.
+
+The Claude Code kit can compose with the separate Patterns Paseo kit for browser
+access. It does not include Paseo or write Paseo's model catalog. Its README
+explains the [upstream picker limitation](https://github.com/getpaseo/paseo/issues/8321)
+and which displayed choices can actually run through the configured provider.
+
 ## Using kits
 
 Provider input is materialized **at sandbox create time only**. `acq kit apply`
@@ -162,6 +180,31 @@ Injection happens only when the binding was recorded, and the harness renderer
 reads the variable by name.
 
 ## Validating a kit
+
+### Shared repository checks
+
+All root directories containing `spec.yaml` are discovered by shared tooling.
+CI runs a matrix over the four kits rather than repeating install/test steps;
+Claude also runs on Python 3.12 and 3.14. Tests never receive model credentials
+and do not launch VMs. The pinned Patterns checkout supplies contract validation,
+not runtime kit configuration.
+
+For local verification, prepare a checkout of Patterns at
+`a290d5d80737fc739e7ec139da0eeaf438631631` in `.patterns` (or set the Make
+variable `PATTERNS` to an existing checkout at that commit). Then run:
+
+```bash
+make setup
+make check
+```
+
+`make setup` creates an isolated development environment and installs locked
+Python tools and existing Node kit dependencies. `make check` runs scoped lint,
+formatting, ShellCheck, all-kit contract validation, local documentation-link
+and normalizer-mode checks, each kit's offline tests, dependency audits,
+unsafe-shell checks, and secret scans. A missing validator or wrong
+Patterns pin fails closed. Gitleaks, ShellCheck, and Node must be available; see the Makefile
+for paths and overrides. Opt-in live Claude tests are separate from this command.
 
 Provider kits are validated with the host-time contract validator from
 `agentic-coding-patterns`:

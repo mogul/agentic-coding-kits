@@ -1,0 +1,11 @@
+Claude Code kit provenance
+
+This kit was initially developed with AI assistance in a local worktree of
+GSA-TTS/agentic-coding-patterns, whose repository dedication is CC0-1.0.
+It is distributed here under the repository's MIT license. No proprietary
+Claude executable or third-party package source is vendored in this kit.
+
+Claude Code is downloaded at installation time from Anthropic's distribution
+and remains governed by Anthropic's terms. LiteLLM and other downloaded runtime
+dependencies retain their respective licenses; the repository license does
+not relicense those dependencies.

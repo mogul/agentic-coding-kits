@@ -6,6 +6,11 @@ tests/output/
 .patterns/
 .tmp/
 
+# Python validation artifacts
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
 # OS noise
 .DS_Store
 Thumbs.db

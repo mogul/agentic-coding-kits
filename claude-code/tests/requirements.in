@@ -1,0 +1,2 @@
+# Test framework only; runtime packages remain in the payload's separate lock.
+pytest==9.1.1
