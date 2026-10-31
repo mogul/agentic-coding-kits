@@ -408,7 +408,14 @@ Before significant pushes, ask the reviewer to inspect only the changed risk
 surface and named prior blockers. Broad reviews that keep inventing unrelated
 scope make delivery non-terminating.
 
-PR bodies use plain language and stay concise:
+Read the target repository's own PR standard first (its contributing guide, agent
+instructions, and PR template). Where it conflicts with the template below, the
+repository wins: follow its title and body prefixes, closing-keyword rules
+(`Refs` versus `Closes`), attribution rules, and required sections, and put
+them in every delegation prompt. When the user points at a newer or draft
+standard, treat it as the target and bring open PR bodies in line with it.
+
+Without a repository standard, PR bodies use plain language and stay concise:
 
 ```markdown
 ## Summary
@@ -542,6 +549,7 @@ Updated: YYYY-MM-DD HH:MM UTC
 ## Immediate Next Actions
 ## Workspace Safety
 ## Fast-Track Grants
+## Pending Decisions and Held Items
 ## Wait Log
 ```
 
@@ -554,7 +562,16 @@ Updated: YYYY-MM-DD HH:MM UTC
   durable facts into the state sections, save a gitignored backup under
   `tmp/archive/`, then empty the log.
 - **Standing rules:** record every user process rule with its date: delivery
-  grants, ready-when-green, filing rule, self-review rule, agent reuse.
+  grants, ready-when-green, filing rule, self-review rule, agent reuse, and
+  standing answers to routine permission prompts (for example, "web search is
+  allowed for public questions"). Apply a recorded policy; ask about anything it
+  does not cover.
+- **Pending Decisions and Held Items:** add this section to the template. For each
+  open question, record your recommendation, the options, and the trigger that
+  would make it urgent, so the user can ask "what did you think?" and get the
+  same answer after a compaction. Held security findings are listed by title only,
+  with a pointer to a private note outside the repository; the note's contents
+  and any attack detail stay out of the handoff and every public place.
 - **Prune stale detail** once superseded: old head SHAs, retention notes for
   workspaces that no longer exist, and debugging narratives.
 
