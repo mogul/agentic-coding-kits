@@ -54,8 +54,8 @@ info_valid() {
 # wait (up to about 5s) for a valid owner file so a caller never acts on a half-started
 # loop or on a stale file. Returns 1 if the loop died meanwhile, or never published one.
 await_info() {
-  local n
-  for n in $(seq 1 50); do
+  local _
+  for _ in $(seq 1 50); do
     info_valid && return 0
     is_running || return 1
     sleep 0.1
@@ -110,11 +110,19 @@ cleanup() {
 }
 
 cmd_start() {
-  local interval=${1:-15} max=${2:-60} owner out deadline
+  local interval=${1:-15} max=${2:-60} owner out deadline got _
   case "$interval$max" in *[!0-9]*|'') usage; exit 2 ;; esac
   exec 9>"$LOCK"
-  if ! flock -n 9; then
-    await_info
+  # status and stop probe the lock by briefly taking it, so a failed attempt is not
+  # proof that a loop is running. Retry until the owner file names a live loop (then
+  # it is real), the lock is free (we win it), or about 5s pass.
+  got=0
+  for _ in $(seq 1 50); do
+    if flock -n 9; then got=1; break; fi
+    info_valid && break
+    sleep 0.1
+  done
+  if [ "$got" -eq 0 ]; then
     owner=$(info_get owner)
     if [ "$owner" = "$ME" ]; then
       echo "a loop is already running and you own it ($(describe)); not starting another"

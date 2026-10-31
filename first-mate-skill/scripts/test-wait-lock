@@ -112,6 +112,18 @@ wait 2>/dev/null
 check "none after the slow loop is stopped" "none" "$(as alice status)"
 rm -rf "$WORK/slow"
 
+echo "a start that meets a brief lock probe still starts"
+# status and stop probe the lock by briefly taking it. Hold it for 1s with no owner
+# file, as a probe would, and start in the middle: it must wait and win, not refuse.
+rm -f "$FIRST_MATE_DIR/.wait.owner"
+( exec 7>"$FIRST_MATE_DIR/.wait.lock"; flock 7; sleep 1 ) &
+sleep 0.2
+as alice 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 80); do [ "$(as alice status | cut -d' ' -f1)" = "mine" ] && break; sleep 0.1; done
+check "start waited out the probe and owns the loop" "mine" "$(as alice status | cut -d' ' -f1)"
+quick alice stop >/dev/null 2>&1
+wait 2>/dev/null
+
 echo "take-over replaces another owner"
 as alice 1 5 >/dev/null 2>&1 &
 for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
