@@ -297,11 +297,29 @@ Reuse and self-review:
   it to commit, self-review, and report.
 - Identify agents and workspaces you did not create, leave them alone, do not
   count them against the cap, and mention them once.
+- **Verify agent claims about the baseline before repeating them.** "Fails on
+  main", "pre-existing failure", "CI started", and "no conflicts" are claims about
+  state the agent may not be able to see (a stale base, a token that cannot read
+  check runs, a tool missing from its sandbox). Reproduce them on a clean base,
+  or read the exact-head check results yourself, and label what you could not
+  confirm.
+- **Read a finish notice against the agent's status and your last prompt.** A
+  finished notice can be the end of an earlier turn, not the reply to your latest
+  follow-up. If the agent shows as running or idle with no new activity after your
+  prompt, say that you cannot tell yet; do not describe a result you have not
+  read.
 
 Permissions: auto-accept is usually a per-workspace UI toggle the CLI does not
 expose, so ask the user to set it after creating a workspace. A provider "build"
 mode may not suppress prompts; check pending permissions and the daemon log.
 Never approve a request unless the user instructs it.
+
+Base of a new workspace: `git fetch` first and create the workspace from
+`origin/<default branch>` (or the exact head of the PR you depend on), never from
+a local branch that may be stale. Record the base SHA, put it in the delegation
+prompt, and tell the agent to confirm `git merge-base HEAD origin/<default>`
+equals it before its first edit. A stale base shows up later as a conflicting PR
+and as false claims such as "this test already fails on main".
 
 Branching from an in-flight PR: branch from its exact head, expect a rebase after
 it lands, and do not mark the new work ready first. If an SSH fetch fails
