@@ -37,11 +37,27 @@ That is the intended quiet path: once a baseline exists, it prints nothing when
 nothing changed, and the wait loop exits 3 at its cap. The very first run prints
 `BASELINE saved` (even with an empty watch list, because agents and permission
 prompts are always collected), so the wait loop returns once at first start;
-restart it after that. If `paseo` is missing the baseline never settles (see the
+start it again after that (check `status` first). If `paseo` is missing the baseline never settles (see the
 previous section), so the loop returns every time. Run the script with `--show`
 to see the full current snapshot, and `list` to see what is being watched. State
 and watch files live in `FIRST_MATE_DIR` (default `./tmp`), relative to where
 you run the script.
+
+## Several wait loops, or "refusing: a loop is running"
+
+The wait script allows one loop per `FIRST_MATE_DIR`, owned by the agent whose
+`PASEO_AGENT_ID` started it. A second start exits 4 (you own it) or 5 (another
+agent owns it) and starts nothing.
+
+- `first-mate-wait.sh status` prints `none`, `mine ...`, or `other owner=<id> ...`.
+- `first-mate-wait.sh stop` stops your loop. `stop --force` stops another owner's.
+- `first-mate-wait.sh take-over INTERVAL MAX` replaces another owner's loop. Use
+  it only when the user has said you are the coordinator.
+- The lock is an `flock` on `FIRST_MATE_DIR/.wait.lock`, so it frees itself when the
+  loop dies. If you still see several loops, they are from an older copy of the
+  script or from different `FIRST_MATE_DIR` values (each directory has its own lock).
+- A forked or resumed session inherits the handoff's claim that a loop is running.
+  That claim is not evidence; run `status`.
 
 ## An edit to the skill does not show up in a running sandbox
 

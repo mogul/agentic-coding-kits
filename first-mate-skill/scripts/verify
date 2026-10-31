@@ -119,7 +119,7 @@ else
   sed 's/^/  | /' "$WORK/sh.log" >&2
 fi
 if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck --severity=warning "$WAIT_SH" "$0" >"$WORK/shellcheck.log" 2>&1; then
+  if shellcheck --severity=warning "$WAIT_SH" "$0" "$KIT_DIR/scripts/test-wait-lock" >"$WORK/shellcheck.log" 2>&1; then
     ok "shellcheck --severity=warning passes"
   else
     bad "shellcheck --severity=warning failed"
@@ -129,13 +129,27 @@ else
   skip "shellcheck not installed (install it to run this gate)"
 fi
 
+info "4b. Wait loop locking and ownership"
+# One loop per FIRST_MATE_DIR, keyed on the owner. Uses a stub detector, so it
+# needs no gh, paseo, or network. Skips itself when flock is missing.
+if command -v flock >/dev/null 2>&1; then
+  if bash "$KIT_DIR/scripts/test-wait-lock" >"$WORK/waitlock.log" 2>&1; then
+    ok "first-mate-wait.sh locking and ownership test passes"
+  else
+    bad "first-mate-wait.sh locking and ownership test failed"
+    sed 's/^/  | /' "$WORK/waitlock.log" >&2
+  fi
+else
+  skip "flock not installed (wait-loop locking test not run)"
+fi
+
 info "5. Shipped detector has no baked-in watch targets"
 # `list` prints the watch list without calling GitHub or Paseo. It must come
 # back with no PRs, issues, or releases, so nothing is hard-coded to a repo.
 if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   mkdir -p "$WORK/state"
   if FIRST_MATE_DIR="$WORK/state" "$PYTHON_BIN" "$CHECK_PY" list >"$WORK/list.out" 2>"$WORK/list.err" \
-    && "$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if not (d.get("repos") or d.get("prs") or d.get("issues") or d.get("releases")) else 1)' "$WORK/list.out"; then
+    && "$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if not (d.get("repos") or d.get("prs") or d.get("issues") or d.get("releases") or d.get("branches") or d.get("workflows")) else 1)' "$WORK/list.out"; then
     ok "first-mate-check.py ships with an empty watch list"
   else
     bad "first-mate-check.py list failed or returned a non-empty watch list"
