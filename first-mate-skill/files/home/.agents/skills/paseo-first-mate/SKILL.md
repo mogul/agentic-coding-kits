@@ -316,7 +316,11 @@ Reuse and self-review:
 Permissions: auto-accept is usually a per-workspace UI toggle the CLI does not
 expose, so ask the user to set it after creating a workspace. A provider "build"
 mode may not suppress prompts; check pending permissions and the daemon log.
-Never approve a request unless the user instructs it.
+Never approve a request unless the user instructs it. A standing policy the user
+has recorded in the handoff (for example, routine web search for public
+questions) counts as an instruction, within its stated scope. Some tools need a
+specific response shape; if a plain "allow" fails with a validation error, retry
+in the shape the error names and record the working form in the handoff.
 
 Base of a new workspace: `git fetch` first and create the workspace from
 `origin/<default branch>` (or the exact head of the PR you depend on), never from
@@ -594,6 +598,11 @@ Archive a workspace only when all conditions are true:
 Dirty files, untracked files, staged changes, unpushed commits, unavailable
 owners, or named retention are hard stops.
 
+When a PR merges, retire what it owned in one pass: archive its idle agent and
+workspace, drop it from the watch list, and delete the local branch only if it
+matches the remote branch exactly. Do not touch agents or workspaces you did not
+create.
+
 ### 11. Close the Loop
 
 After upstream merges:
@@ -628,6 +637,21 @@ consumers, current-head CI, review, and live evidence agree.
   PR, its docs, and results folders. If earlier runs do not cover the new check,
   say exactly what was logged, what it did not cover, and why the new run is
   needed. Results must be tied to the tested revision.
+- **Read live systems with shape-only commands.** When you need facts from an
+  environment only the user can reach, ask for output that cannot carry secrets:
+  names, counts, and key lists, never values and never an environment dump. Give
+  one pasteable command that filters to that shape (for example, `jq` selecting
+  credential key names), and say what the output can and cannot show.
+- **Drafts for human threads.** Before posting on a reviewer's or user's thread,
+  show the draft, give your recommendation and the options (post, change,
+  remove), and wait. Post with the repository's attribution prefix, and keep the
+  wording neutral about anything held under invariant 10.
+- **Name the cause before blaming it.** A root-cause statement cites the log line
+  or `file:line` that locates it, and says which resource it concerns. Correct a
+  mislabeled cause as soon as you notice it, in the report and in the handoff.
+- **Report what the sandbox lacks.** A missing tool (a package manager, a
+  validator, a container runtime) is a fact, not a reason to skip a check
+  silently. Say which checks did not run, and ask before installing anything.
 - **Host-run scripts.** When the user must run something on their machine, give
   one line starting with a `cd` to the right worktree, or a script plus a one-line
   invocation. Scripts must:
