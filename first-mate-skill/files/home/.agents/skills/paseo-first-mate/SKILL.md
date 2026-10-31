@@ -72,7 +72,7 @@ portability:
   generic_llm: false
 changelog:
   - version: "1.3.0"
-    changes: "One coordinator and one wait loop per effort: the wait script now holds an owner-keyed lock (PASEO_AGENT_ID) and has status, stop, and take-over; starting is idempotent and never stacks loops; a resumed or forked session is a non-coordinator until the user says otherwise; never report a loop as running without a status result from this turn; new troubleshooting rows."
+    changes: "One coordinator and one wait loop per effort (owner-keyed flock in the wait script with status, stop, and take-over; forks and resumed sessions are non-coordinators; never report a loop as running without a status result from this turn). Detector watches branches and workflows. Fresh-base rule, verified agent claims, and reading finish notices against agent status. Runtime acceptance signal, mutation proof, and post-merge proof. Repository PR standards override the template. Pending Decisions and Held Items handoff section, recorded permission policies, shape-only host reads, drafts for human threads, cleanup on merge, and new troubleshooting rows."
   - version: "1.2.0"
     changes: "Add a change-detecting check and background wait loop (bundled assets) as the token-cheap default, alongside the Paseo heartbeat; add the end-the-turn rule for quiet wake-ups, standing ready-when-green grant, agent self-review and reuse rules, filing rule, host-run script hygiene, reviewer reply guidance, and new troubleshooting rows."
   - version: "1.1.0"
