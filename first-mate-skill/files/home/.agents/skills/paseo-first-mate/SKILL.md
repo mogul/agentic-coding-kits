@@ -137,6 +137,10 @@ Single-change and read-only work are covered by `avoid_when` above.
    `ready-push` level (see Delivery Levels) is the only exception to waiting for
    CI before a PR is marked ready.
 6. Never present mocked, offline, or simulated evidence as live end-to-end proof.
+   A green pipeline is not proof that the deployed thing runs: a deploy can
+   succeed while the application it created crash-loops. Name the runtime signal
+   up front (for example, the process count and a specific startup log line), and
+   keep the issue unverified until someone has observed that signal.
 7. Label every claim as verified, hypothesis, or unverified. Fix the live
    acceptance criterion before implementation starts.
 8. Never archive dirty, unpushed, unrecoverable, or intentionally retained work.
@@ -331,6 +335,11 @@ out-of-scope behavior; base; acceptance criteria including the live criterion;
 required focused tests and agent-launched self-review; the draft/ready/merge guard; the PR standard
 (push levels only); and "if the result contradicts the premise, report it and
 do not fix it."
+
+For a new guard, check, or test, also require a mutation proof: the agent reverts
+the fix, shows the test fails, restores it, and says what the test does not cover.
+A test that cannot fail gives false assurance, and a test that asserts only that a
+string exists is not a behavior test.
 
 Use the completion clause that matches the delivery level:
 
@@ -584,6 +593,14 @@ After upstream merges:
 - Close delivered issues through structured metadata.
 - Update the epic status and handoff.
 - Surface work that the merge unblocked.
+- **Post-merge proof.** Some changes can only be proven by the first real run
+  after merge (a deploy, a release, a scheduled job). State that in the PR and the
+  handoff, add the run to the watch list (section 8), and write the pass criterion
+  as an observable (for example, "two consecutive runs plan zero changes on X"
+  or "the app shows 1/1 and logs its ready line"). Keep the item open until it is
+  observed. When it fails, read the failing step's log before reporting, and
+  separate "my change did not work" from "my change worked and exposed the next
+  failure".
 
 Do not declare the milestone complete until production wiring, downstream
 consumers, current-head CI, review, and live evidence agree.
