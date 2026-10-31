@@ -1,7 +1,7 @@
 ---
 name: paseo-first-mate
 id: paseo-first-mate
-version: "1.2.0"
+version: "1.3.0"
 title: "Paseo First Mate"
 description: "Coordinate a multi-issue engineering effort through isolated Paseo workspaces, structured GitHub metadata, dependency-aware delivery, change-detecting follow-up, and a durable handoff."
 type: skill
@@ -71,6 +71,8 @@ portability:
   chatgpt: false
   generic_llm: false
 changelog:
+  - version: "1.3.0"
+    changes: "One coordinator and one wait loop per effort: the wait script now holds an owner-keyed lock (PASEO_AGENT_ID) and has status, stop, and take-over; starting is idempotent and never stacks loops; a resumed or forked session is a non-coordinator until the user says otherwise; never report a loop as running without a status result from this turn; new troubleshooting rows."
   - version: "1.2.0"
     changes: "Add a change-detecting check and background wait loop (bundled assets) as the token-cheap default, alongside the Paseo heartbeat; add the end-the-turn rule for quiet wake-ups, standing ready-when-green grant, agent self-review and reuse rules, filing rule, host-run script hygiene, reviewer reply guidance, and new troubleshooting rows."
   - version: "1.1.0"
@@ -144,6 +146,9 @@ Single-change and read-only work are covered by `avoid_when` above.
     privately and ask the user how to proceed. Do not file them as public issues.
 11. Never merge, and never change PR draft/ready state, beyond what the user has
     explicitly granted.
+12. One coordinator per effort. A resumed or forked session is a non-coordinator
+    until the user says it is the coordinator (see section 1). A non-coordinator
+    starts no wait loop and takes no action on the watched PRs and agents.
 
 ## Delivery Levels
 
@@ -181,16 +186,24 @@ the handoff.
 
 ### 1. Adopt or Establish the Role
 
-When resuming an existing effort:
+When resuming an existing effort, or when this session is a fork of another:
 
 1. Read the handoff.
-2. Refresh authoritative remote state before reporting anything.
-3. Verify that every control the handoff names actually exists on the accessible
-   daemon: wait loop, schedules, workspaces, agents. Record any control that is
-   missing or invisible; do not assume its state, resume it, or recreate it
-   without authorization. Reconcile workspaces against `paseo workspace ls`;
-   retained-workspace notes may be stale in a fresh sandbox.
-4. Start the wait loop (section 8) if none is running.
+2. Compare the coordinator ID in its Controls with your own `$PASEO_AGENT_ID`.
+   If they differ, or none is recorded, you are a non-coordinator: do steps 3
+   onward read-only (use `first-mate-check.py --show`, which saves nothing),
+   start no loop, and ask the user whether you are taking over. A fork inherits
+   the handoff, including its claim that a loop is running; that claim is not
+   evidence.
+3. Refresh authoritative remote state before reporting anything.
+4. Verify that every control the handoff names actually exists on the accessible
+   daemon: wait loop (`first-mate-wait.sh status`), schedules, workspaces,
+   agents. Record any control that is missing or invisible; do not assume its
+   state, resume it, or recreate it without authorization. Reconcile workspaces
+   against `paseo workspace ls`; retained-workspace notes may be stale in a fresh
+   sandbox.
+5. As the confirmed coordinator, ensure one wait loop is running (section 8).
+   Record your agent ID as coordinator in the handoff.
 
 ### 2. Establish the Mission
 
@@ -395,7 +408,11 @@ one the user prefers and record the choice and any later change in the handoff:
 
 - **Background wait loop (default, cheapest).** A shell loop that runs the check
   on an interval and exits only when something changed. The harness notifies the
-  coordinator when it finishes, so waiting costs no model calls.
+  coordinator when it finishes, so waiting costs no model calls. There is at most
+  one loop per `FIRST_MATE_DIR`, and it is owned by the agent that started it.
+- Prefer the heartbeat if the user plans to fork or resume sessions often. A
+  heartbeat is a named schedule, so it is one object that no fork can duplicate,
+  at the price of a model call per run.
 - **Paseo heartbeat.** A scheduled prompt that runs the check each time. Use
   `paseo heartbeat update <id> --cron ...` to change its cadence (for example,
   hourly while nothing is moving, every 15 minutes once something changes).
@@ -416,17 +433,29 @@ Bundled assets:
   `FIRST_MATE_DIR` (default `./tmp`, which must be ignored by git).
 - `assets/first-mate-wait.sh INTERVAL_MIN MAX_MIN` runs the check on an interval
   and exits as soon as it reports a change (exit 0, report printed) or at the cap
-  (exit 3, nothing printed).
+  (exit 3, nothing printed). It holds an `flock` on `FIRST_MATE_DIR/.wait.lock`
+  and records the owner (`$PASEO_AGENT_ID`), pid, and start time. The lock frees
+  itself when the process dies, so there is no stale pidfile. Starting while a
+  loop is running never starts a second one: exit 4 if you own it, exit 5 if
+  another agent does. Other forms:
+  - `status` prints `none`, `mine ...`, or `other owner=<id> ...`.
+  - `stop` stops your own loop; `stop --force` stops another owner's.
+  - `take-over INTERVAL MAX` stops any running loop and starts yours. Use it only
+    after the user confirms you are the coordinator.
 
 Procedure:
 
 1. Copy both assets next to each other into the coordinator worktree's ignored
    `tmp/`, register the repositories, and add the watch list.
-2. For the wait loop, start the wait script as a **background** shell command.
-   For a heartbeat, have its prompt run `first-mate-check.py` once.
+2. For the wait loop, run `first-mate-wait.sh status` first, then start the
+   script as a **background** shell command only if it says `none`. For a
+   heartbeat, have its prompt run `first-mate-check.py` once.
 3. Use a 5-minute interval while work is in flight (an agent running, CI pending,
    or a review or live run awaited) and 15 minutes when quiet. Use a cap of about
-   two hours on the wait loop, and restart it after handling each notification.
+   two hours on the wait loop. After handling a notification, ensure a loop is
+   running (`status`, then start if `none`); never start one blindly. To change
+   the interval, `stop` and start again. Exit code 4 on a start means the loop
+   you wanted is already there, so do nothing more.
 4. **Quiet wake-up rule:** if the check reports nothing, make no further tool
    calls and end the turn. Whether to say "no change" follows the user's current
    preference; record it in the handoff. Say it only when it is true: the check
@@ -434,6 +463,13 @@ Procedure:
 5. On a change, read the report, act only on concrete changes, update the handoff,
    report meaningful changes or blockers to the user, and start the next wait.
 6. Prune merged and closed items from the watch list.
+7. Report a loop as running only from a `status` result obtained this turn,
+   never from the handoff or from memory.
+
+The detector saves its snapshot when it reports. Two agents running it against
+one `FIRST_MATE_DIR` split the events between them, and one never sees a change
+the other consumed. Only the coordinator runs it in saving mode; everyone else
+uses `--show`.
 
 The check resolves exact-head state, so stale cached PR check fields cannot
 mislead it. It cannot see GitHub notifications or review requests on PRs outside
@@ -473,7 +509,8 @@ Updated: YYYY-MM-DD HH:MM UTC
 ## Wait Log
 ```
 
-- **Controls:** wait mechanism (loop or heartbeat), interval, and cap, schedule status (or "not visible"),
+- **Controls:** coordinator agent ID (`$PASEO_AGENT_ID` of the owner), wait
+  mechanism (loop or heartbeat), interval, and cap, schedule status (or "not visible"),
   agent cap, coordinator and delegated models, permission setup per workspace.
 - **Current Coordination State:** the first section read after each wake-up. Keep the
   whole file near 200 lines.
@@ -593,6 +630,8 @@ Before declaring coordination complete, verify:
 - Live results are observed, not simulated.
 - Required workspaces are retained; safe obsolete workspaces are archived.
 - The handoff reflects the final state and its log is cleared.
+- Exactly one coordinator is recorded, and `first-mate-wait.sh status` was run
+  this turn before any statement about the loop.
 - The wait loop or heartbeat is stopped and its state file cleared when coordination ends.
 
 ## Troubleshooting
@@ -607,6 +646,9 @@ Before declaring coordination complete, verify:
 | Branches diverge across worktrees | Compare commits and content; replay only missing reviewed commits with lease protection. |
 | Dependent PR conflicts after upstream merge | Preserve work, restack on current base, rerun focused checks, and refresh draft CI. |
 | Disk cleanup threatens blocked work | Retain dirty or dependency-blocked workspaces and record them in the handoff. |
+| Several wait loops, or duplicate wake-ups | Run `first-mate-wait.sh status`. With the lock there is at most one loop; duplicates come from an older copy of the script or a different `FIRST_MATE_DIR`. Stop the extras, and check for a forked session acting as a second coordinator. |
+| A forked session inherits "wait loop running" from the handoff | Treat it as unverified. The fork is a non-coordinator: no loop, read-only `--show`, and ask the user before taking over. |
+| Start exits 5 (another owner holds the loop) | Do not force it. Ask the user who the coordinator is; use `take-over` only on their word. |
 | A quiet turn fills with empty tool calls | Stop. Run the check once and end the turn (section 8). |
 | Host-run script stalls with processes in state `T` | Job control froze the child. Use `timeout --foreground` and show live output. |
 | Reviewer's change request remains after the fix | Reply with the commits and wait for re-review; a push does not clear it. |

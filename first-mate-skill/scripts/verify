@@ -119,7 +119,7 @@ else
   sed 's/^/  | /' "$WORK/sh.log" >&2
 fi
 if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck --severity=warning "$WAIT_SH" "$0" >"$WORK/shellcheck.log" 2>&1; then
+  if shellcheck --severity=warning "$WAIT_SH" "$0" "$KIT_DIR/scripts/test-wait-lock" >"$WORK/shellcheck.log" 2>&1; then
     ok "shellcheck --severity=warning passes"
   else
     bad "shellcheck --severity=warning failed"
@@ -127,6 +127,20 @@ if command -v shellcheck >/dev/null 2>&1; then
   fi
 else
   skip "shellcheck not installed (install it to run this gate)"
+fi
+
+info "4b. Wait loop locking and ownership"
+# One loop per FIRST_MATE_DIR, keyed on the owner. Uses a stub detector, so it
+# needs no gh, paseo, or network. Skips itself when flock is missing.
+if command -v flock >/dev/null 2>&1; then
+  if bash "$KIT_DIR/scripts/test-wait-lock" >"$WORK/waitlock.log" 2>&1; then
+    ok "first-mate-wait.sh locking and ownership test passes"
+  else
+    bad "first-mate-wait.sh locking and ownership test failed"
+    sed 's/^/  | /' "$WORK/waitlock.log" >&2
+  fi
+else
+  skip "flock not installed (wait-loop locking test not run)"
 fi
 
 info "5. Shipped detector has no baked-in watch targets"
