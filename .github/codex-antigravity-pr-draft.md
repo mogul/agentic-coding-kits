@@ -17,10 +17,9 @@ Neither agent's native wire API matches that contract. Keep adaptation in each
 agent kit, preserve exact IDs, scope translation to text/function tools and
 reject unsupported behavior. Design records live with each kit.
 
-This branch is based on the Claude-kit branch so it reuses its shared validation
-and executable-index guard. It must target that branch until the prerequisite
-is merged, or be rebased onto main afterward. Do not include unrelated base work
-as a new change.
+This branch is based on main and reuses the merged Claude kit's shared validation
+and executable-index guard. The PR adds only the two new kits and their shared
+test/CI wiring.
 
 ## Verification transcript
 
