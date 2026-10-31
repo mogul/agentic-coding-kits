@@ -42,9 +42,32 @@ info_get() { sed -n "s/^$1=//p" "$INFO" 2>/dev/null | head -n 1; }
 # True when some process holds the lock. The subshell takes and releases it.
 is_running() { if ( exec 8>"$LOCK"; flock -n 8 ); then return 1; else return 0; fi; }
 
+# True when the owner file names a live first-mate-wait.sh process. A loop killed with
+# SIGKILL leaves its owner file behind, so the file alone is not proof.
+info_valid() {
+  local p
+  p=$(info_get pid)
+  [ -n "$p" ] && ps -p "$p" -o args= 2>/dev/null | grep -q 'first-mate-wait.sh'
+}
+
+# The loop takes the lock before it writes the owner file. When the lock is held,
+# wait (up to about 5s) for a valid owner file so a caller never acts on a half-started
+# loop or on a stale file. Returns 1 if the loop died meanwhile, or never published one.
+await_info() {
+  local n
+  for n in $(seq 1 50); do
+    info_valid && return 0
+    is_running || return 1
+    sleep 0.1
+  done
+  return 1
+}
+
 describe() {
   if ! is_running; then echo "none"; return 0; fi
   local owner kind
+  await_info
+  is_running || { echo "none"; return 0; }
   owner=$(info_get owner)
   if [ "$owner" = "$ME" ]; then kind=mine; else kind=other; fi
   echo "$kind owner=${owner:-unknown} pid=$(info_get pid) started=$(info_get started)" \
@@ -55,6 +78,8 @@ cmd_stop() {
   local force=0 owner pid
   [ "${1:-}" = "--force" ] && force=1
   if ! is_running; then echo "none running"; return 0; fi
+  await_info
+  is_running || { echo "none running"; return 0; }
   owner=$(info_get owner); pid=$(info_get pid)
   if [ "$owner" != "$ME" ] && [ "$force" -eq 0 ]; then
     echo "refusing: the loop is owned by ${owner:-unknown}; use 'stop --force' or 'take-over'" >&2
@@ -89,6 +114,7 @@ cmd_start() {
   case "$interval$max" in *[!0-9]*|'') usage; exit 2 ;; esac
   exec 9>"$LOCK"
   if ! flock -n 9; then
+    await_info
     owner=$(info_get owner)
     if [ "$owner" = "$ME" ]; then
       echo "a loop is already running and you own it ($(describe)); not starting another"

@@ -94,6 +94,24 @@ kill -9 "$pid"; wait 2>/dev/null
 sleep 0.3
 check "lock is free after kill -9" "none" "$(as bob status)"
 
+echo "a slow-starting loop (lock held, owner file not yet written, stale file present)"
+# $INFO from the kill -9 case above is still on disk with a dead pid.
+# A copy that keeps the real script name (the loop's pid is validated by name).
+mkdir -p "$WORK/slow"
+cp "$WORK/bin/first-mate-check.py" "$WORK/slow/"
+sed 's|^  # Write then rename, so status|  sleep 1.5\n  # Write then rename, so status|' "$WAIT" > "$WORK/slow/first-mate-wait.sh"
+chmod +x "$WORK/slow/first-mate-wait.sh"
+FIRST_MATE_OWNER=alice "$WORK/slow/first-mate-wait.sh" 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 50); do
+  ( exec 8>"$FIRST_MATE_DIR/.wait.lock"; flock -n 8 ) || break; sleep 0.1
+done
+check "alice sees mine while still starting" "mine" "$(as alice status | cut -d' ' -f1)"
+quick bob 1 5 >/dev/null 2>&1; check "bob is refused (exit 5), not treated as unowned" "5" "$?"
+quick alice stop >/dev/null 2>&1; check "alice stops it after a slow start" "0" "$?"
+wait 2>/dev/null
+check "none after the slow loop is stopped" "none" "$(as alice status)"
+rm -rf "$WORK/slow"
+
 echo "take-over replaces another owner"
 as alice 1 5 >/dev/null 2>&1 &
 for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
@@ -102,7 +120,9 @@ for _ in $(seq 1 80); do [ "$(as bob status | cut -d' ' -f1)" = "mine" ] && brea
 check "bob now owns it" "mine" "$(as bob status | cut -d' ' -f1)"
 check "exactly one loop after take-over" "1" "$(pgrep -f "$WORK/bin/first-mate-wait.sh (take-over|[0-9])" | wc -l | tr -d " ")"
 
-as bob stop >/dev/null 2>&1; wait 2>/dev/null
+# --force and `any`: end whoever holds it, so the bare wait below can never block on a
+# loop an earlier failed step left running.
+FIRST_MATE_OWNER=any "$WAIT" stop --force >/dev/null 2>&1; wait 2>/dev/null
 
 echo "stop works while the detector is mid-run"
 touch "$FIRST_MATE_DIR/slow"
