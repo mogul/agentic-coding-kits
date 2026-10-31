@@ -64,7 +64,7 @@ cmd_stop() {
     return 2
   fi
   kill "$pid"
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     if ! is_running; then echo "stopped (was owned by ${owner:-unknown})"; return 0; fi
     sleep 0.1
   done
