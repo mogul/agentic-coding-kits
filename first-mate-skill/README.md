@@ -14,9 +14,10 @@ network hosts.
 
 ```text
 ~/.agents/skills/paseo-first-mate/
-  SKILL.md                    the skill (version 1.2.0 at authorship)
+  SKILL.md                    the skill (version 1.3.0)
   assets/first-mate-check.py  change detector (prints nothing when nothing changed)
-  assets/first-mate-wait.sh   background wait loop around the detector
+  assets/first-mate-wait.sh   background wait loop around the detector; one loop per
+                              FIRST_MATE_DIR, owned by the starting agent (flock)
 ```
 
 `~/.agents/skills` is the cross-agent skills root that the supported agents scan,
@@ -53,7 +54,7 @@ The detector is a Python 3 script and the wait loop is bash. They call the `gh`
 and `paseo` CLIs when the agent runs them. This kit installs none of `python3`,
 `gh`, or `paseo` and does not allow-list `api.github.com`; kits cannot declare
 dependencies yet, so those must come from the sandbox image, its other kits, and
-secret bindings. A missing tool is reported rather than hidden: the detector
+secret bindings. The wait loop also needs `flock` (util-linux) and keys its lock on `PASEO_AGENT_ID`. Use `first-mate-wait.sh status` to see whether a loop is running and who owns it. A missing tool is reported rather than hidden: the detector
 prints an `ERROR` line naming the missing CLI, and the shell reports a missing
 `python3`. The detector only reads GitHub and Paseo state; its only writes are
 the state and watch files, and the directory that holds them, `FIRST_MATE_DIR`

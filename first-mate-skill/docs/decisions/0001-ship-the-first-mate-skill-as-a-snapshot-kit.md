@@ -60,3 +60,11 @@ The skill is still being developed in a separate working copy.
   SHA.
 - The spec's `files[]` list and the `files/` tree must be kept equal by hand;
   `scripts/verify` enforces it, because msb materializes only listed records.
+
+## Update 2026-10-31: skill 1.3.0
+
+The snapshot moved to skill version 1.3.0. `first-mate-wait.sh` now holds an
+`flock` keyed on the caller's `PASEO_AGENT_ID`, and `scripts/test-wait-lock`
+(run from `scripts/verify`) covers it offline with a stub detector. This changes
+the shipped script, not the kit's shape: still files only, no commands, no
+egress. The script now also requires `flock` from util-linux on the sandbox image.

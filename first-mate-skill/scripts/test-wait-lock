@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+#
+# test-wait-lock — offline test of first-mate-wait.sh ownership and locking.
+# Uses a stub detector, so it needs no gh, paseo, or network. Needs flock.
+#
+# Usage: first-mate-skill/scripts/test-wait-lock
+
+set -uo pipefail
+
+KIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+WAIT_SRC="$KIT_DIR/files/home/.agents/skills/paseo-first-mate/assets/first-mate-wait.sh"
+
+if ! command -v flock >/dev/null 2>&1; then
+  echo "SKIP flock not installed"
+  exit 0
+fi
+# GNU timeout is `timeout` on Linux and `gtimeout` (brew install coreutils) on macOS.
+TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
+if [ -z "$TIMEOUT_BIN" ]; then
+  echo "SKIP timeout/gtimeout not installed"
+  exit 0
+fi
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/first-mate-wait-test.XXXXXX")" || exit 1
+mkdir -p "$WORK/bin" "$WORK/state"
+cp "$WAIT_SRC" "$WORK/bin/first-mate-wait.sh"
+# Stub detector: quiet until a "change" file appears, then prints once.
+cat > "$WORK/bin/first-mate-check.py" <<'PY'
+#!/usr/bin/env python3
+import os, time
+if os.path.exists(os.path.join(os.environ["FIRST_MATE_DIR"], "slow")):
+    time.sleep(30)
+p = os.path.join(os.environ["FIRST_MATE_DIR"], "change")
+if os.path.exists(p):
+    print("CHANGED stub")
+PY
+chmod +x "$WORK/bin/first-mate-wait.sh" "$WORK/bin/first-mate-check.py"
+
+WAIT="$WORK/bin/first-mate-wait.sh"
+export FIRST_MATE_DIR="$WORK/state"
+pass=0
+fail=0
+check() { # name expected actual
+  if [ "$2" = "$3" ]; then
+    printf '  PASS %s\n' "$1"; pass=$((pass+1))
+  else
+    printf '  FAIL %s (expected %q, got %q)\n' "$1" "$2" "$3"; fail=$((fail+1))
+  fi
+}
+as() { local who=$1; shift; FIRST_MATE_OWNER=$who "$WAIT" "$@"; }
+# For calls that must return at once; a mutated script would block here.
+quick() { local who=$1; shift; FIRST_MATE_OWNER=$who "$TIMEOUT_BIN" --foreground 5 "$WAIT" "$@"; }
+# Watchdog: a test must never hang a terminal, whatever the platform does.
+WATCHDOG_SECS=${FIRST_MATE_TEST_WATCHDOG:-120}
+( sleep "$WATCHDOG_SECS"; echo "FAIL watchdog: test exceeded ${WATCHDOG_SECS}s" >&2; kill -TERM $$ ) &
+WATCHDOG=$!
+disown "$WATCHDOG" 2>/dev/null  # so the bare `wait` calls below do not wait for it
+cleanup() {
+  pkill -P "$WATCHDOG" 2>/dev/null
+  kill "$WATCHDOG" 2>/dev/null
+  FIRST_MATE_OWNER=any "$WAIT" stop --force >/dev/null 2>&1
+  # Only processes started from this test's own directory.
+  pkill -f "$WORK/bin/" 2>/dev/null
+  rm -rf "$WORK"
+}
+trap cleanup EXIT INT TERM
+
+echo "status with nothing running"
+check "status is none" "none" "$(as alice status)"
+
+echo "start a loop as alice"
+as alice 1 5 >"$WORK/alice.out" 2>&1 &
+for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
+check "alice sees mine" "mine" "$(as alice status | cut -d' ' -f1)"
+check "bob sees other" "other" "$(as bob status | cut -d' ' -f1)"
+
+echo "a second start never stacks"
+quick alice 1 5 >/dev/null 2>&1; check "alice restart exits 4" "4" "$?"
+quick bob 1 5 >/dev/null 2>&1;   check "bob start exits 5" "5" "$?"
+check "still exactly one loop" "1" "$(pgrep -f "$WORK/bin/first-mate-wait.sh (take-over|[0-9])" | wc -l | tr -d " ")"
+
+echo "stop respects ownership"
+as bob stop >/dev/null 2>&1;  check "bob cannot stop alice" "5" "$?"
+check "alice loop still running" "mine" "$(as alice status | cut -d' ' -f1)"
+as alice stop >/dev/null 2>&1; check "alice stops her loop" "0" "$?"
+check "status is none after stop" "none" "$(as alice status)"
+wait
+
+echo "a SIGKILLed loop frees the lock"
+as alice 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
+pid="$(sed -n 's/^pid=//p' "$FIRST_MATE_DIR/.wait.owner")"
+kill -9 "$pid"; wait 2>/dev/null
+sleep 0.3
+check "lock is free after kill -9" "none" "$(as bob status)"
+
+echo "a slow-starting loop (lock held, owner file not yet written, stale file present)"
+# $INFO from the kill -9 case above is still on disk with a dead pid.
+# A copy that keeps the real script name (the loop's pid is validated by name).
+mkdir -p "$WORK/slow"
+cp "$WORK/bin/first-mate-check.py" "$WORK/slow/"
+sed 's|^  # Write then rename, so status|  sleep 1.5\n  # Write then rename, so status|' "$WAIT" > "$WORK/slow/first-mate-wait.sh"
+chmod +x "$WORK/slow/first-mate-wait.sh"
+FIRST_MATE_OWNER=alice "$WORK/slow/first-mate-wait.sh" 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 50); do
+  ( exec 8>"$FIRST_MATE_DIR/.wait.lock"; flock -n 8 ) || break; sleep 0.1
+done
+check "alice sees mine while still starting" "mine" "$(as alice status | cut -d' ' -f1)"
+quick bob 1 5 >/dev/null 2>&1; check "bob is refused (exit 5), not treated as unowned" "5" "$?"
+quick alice stop >/dev/null 2>&1; check "alice stops it after a slow start" "0" "$?"
+wait 2>/dev/null
+check "none after the slow loop is stopped" "none" "$(as alice status)"
+rm -rf "$WORK/slow"
+
+echo "a start that meets a brief lock probe still starts"
+# status and stop probe the lock by briefly taking it. Hold it for 1s with no owner
+# file, as a probe would, and start in the middle: it must wait and win, not refuse.
+rm -f "$FIRST_MATE_DIR/.wait.owner"
+( exec 7>"$FIRST_MATE_DIR/.wait.lock"; flock 7; sleep 1 ) &
+sleep 0.2
+as alice 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 80); do [ "$(as alice status | cut -d' ' -f1)" = "mine" ] && break; sleep 0.1; done
+check "start waited out the probe and owns the loop" "mine" "$(as alice status | cut -d' ' -f1)"
+quick alice stop >/dev/null 2>&1
+wait 2>/dev/null
+
+echo "take-over replaces another owner"
+as alice 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
+as bob take-over 1 5 >"$WORK/bob.out" 2>&1 &
+for _ in $(seq 1 80); do [ "$(as bob status | cut -d' ' -f1)" = "mine" ] && break; sleep 0.1; done
+check "bob now owns it" "mine" "$(as bob status | cut -d' ' -f1)"
+check "exactly one loop after take-over" "1" "$(pgrep -f "$WORK/bin/first-mate-wait.sh (take-over|[0-9])" | wc -l | tr -d " ")"
+
+# --force and `any`: end whoever holds it, so the bare wait below can never block on a
+# loop an earlier failed step left running.
+FIRST_MATE_OWNER=any "$WAIT" stop --force >/dev/null 2>&1; wait 2>/dev/null
+
+echo "stop works while the detector is mid-run"
+touch "$FIRST_MATE_DIR/slow"
+as alice 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
+sleep 0.5
+start=$SECONDS
+quick alice stop >/dev/null 2>&1; check "stop returns 0 during a slow detector" "0" "$?"
+check "stop took under 4s" "yes" "$([ $((SECONDS - start)) -lt 4 ] && echo yes || echo no)"
+check "status is none after slow stop" "none" "$(as alice status)"
+wait 2>/dev/null
+rm -f "$FIRST_MATE_DIR/slow"
+
+echo "a change ends the loop with exit 0 and the report"
+touch "$FIRST_MATE_DIR/change"
+out="$(as alice 1 5 2>&1)"; rc=$?
+check "exit 0 on change" "0" "$rc"
+check "report is printed" "CHANGED stub" "$out"
+check "lock released on exit" "none" "$(as alice status)"
+rm -f "$FIRST_MATE_DIR/change"
+
+echo "the cap exits 3 and prints nothing"
+out="$(as alice 1 0 2>&1)"; rc=$?
+check "exit 3 at the cap" "3" "$rc"
+check "nothing printed" "" "$out"
+
+printf '\n  %d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]
