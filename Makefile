@@ -3,6 +3,7 @@ VENV ?= .tmp/ci-venv
 PY := $(VENV)/bin/python
 PATTERNS ?= .patterns
 LINT_PATHS := scripts/validate-kits.py scripts/run-kit-tests.py scripts/tests claude-code/files claude-code/tests claude-code/scripts/test claude-code/scripts/verify
+LINT_PATHS += codex/files codex/tests codex/scripts antigravity/files antigravity/tests antigravity/scripts scripts/verify-native-cli.py
 GITLEAKS ?= gitleaks
 
 .PHONY: setup check lint test validate security
@@ -18,6 +19,7 @@ lint:
 	$(PY) -m ruff check $(LINT_PATHS)
 	$(PY) -m ruff format --check $(LINT_PATHS)
 	shellcheck claude-code/files/home/.local/bin/claude
+	shellcheck codex/files/home/.local/bin/codex antigravity/files/home/.local/bin/agy
 
 validate:
 	$(PY) scripts/validate-kits.py --patterns $(PATTERNS)
@@ -32,4 +34,7 @@ security:
 	$(PY) $(PATTERNS)/scripts/scan_unsafe_shell.py claude-code
 	$(GITLEAKS) dir --redact --no-banner --log-level warn claude-code
 	$(GITLEAKS) dir --redact --no-banner --log-level warn scripts
+	$(PY) $(PATTERNS)/scripts/scan_unsafe_shell.py codex antigravity
+	$(GITLEAKS) dir --redact --no-banner --log-level warn codex
+	$(GITLEAKS) dir --redact --no-banner --log-level warn antigravity
 	$(GITLEAKS) git --redact --no-banner --log-level warn .

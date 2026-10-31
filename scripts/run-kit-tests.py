@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-KIT_NAMES = ("opencode-go-provider", "pi-coding-agent", "first-mate-skill", "claude-code")
+KIT_NAMES = ("opencode-go-provider", "pi-coding-agent", "first-mate-skill", "claude-code", "codex", "antigravity")
 
 
 def test_commands(root: Path, name: str, *, install: bool = False) -> tuple[Path, list[list[str]]]:

@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 PATTERNS_REF = "a290d5d80737fc739e7ec139da0eeaf438631631"
-REQUIRED_KITS = {"opencode-go-provider", "pi-coding-agent", "first-mate-skill", "claude-code"}
+REQUIRED_KITS = {"opencode-go-provider", "pi-coding-agent", "first-mate-skill", "claude-code", "codex", "antigravity"}
 
 
 def require_file(path: Path) -> Path:

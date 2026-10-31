@@ -15,10 +15,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kit: [opencode-go-provider, pi-coding-agent, first-mate-skill, claude-code]
+        kit: [opencode-go-provider, pi-coding-agent, first-mate-skill, claude-code, codex, antigravity]
         python: ["3.14"]
         include:
           - kit: claude-code
+            python: "3.12"
+          - kit: codex
+            python: "3.12"
+          - kit: antigravity
             python: "3.12"
     steps:
       - name: Check out repository
