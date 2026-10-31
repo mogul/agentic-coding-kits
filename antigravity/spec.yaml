@@ -1,0 +1,32 @@
+schemaVersion: hybrid/v1
+kind: mixin
+name: antigravity
+displayName: Antigravity (Chat Completions gateway)
+description: Pinned agy CLI with an invocation-owned Gemini-to-Chat-Completions bridge.
+agent:
+  name: antigravity
+  entrypoint: agy
+caps:
+  network:
+    allow: [storage.googleapis.com]
+files:
+  - {path: /home/agent/antigravity-kit/install.py, mode: "0755", source: files/home/antigravity-kit/install.py}
+  - {path: /home/agent/antigravity-kit/launch.py, mode: "0755", source: files/home/antigravity-kit/launch.py}
+  - {path: /home/agent/antigravity-kit/provider.py, mode: "0644", source: files/home/antigravity-kit/provider.py}
+  - {path: /home/agent/antigravity-kit/bridge.py, mode: "0644", source: files/home/antigravity-kit/bridge.py}
+  - {path: /home/agent/antigravity-kit/process.py, mode: "0644", source: files/home/antigravity-kit/process.py}
+  - {path: /home/agent/.local/bin/agy, mode: "0755", source: files/home/.local/bin/agy}
+commands:
+  - phase: startup
+    user: "1000"
+    description: Install checksum-pinned Antigravity as the agent user
+    command: [python3, /home/agent/antigravity-kit/install.py, --apply]
+agentContext: |
+  Run agy in the guest terminal. Set ACQ_ANTIGRAVITY_PROVIDER if the
+  materialized acq provider generation is ambiguous; ACQ_ANTIGRAVITY_MODEL
+  and ACQ_ANTIGRAVITY_SMALL_MODEL select exact configured deployment IDs.
+  Text and ordinary function tools are supported; media and native Gemini
+  features are not. Responses are buffered. No proxy port is published.
+  Paseo's Antigravity plugin uses full access without permission prompts;
+  only use it inside an appropriately isolated workspace. The kit does not
+  enable that flag for terminal use.

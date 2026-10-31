@@ -1,0 +1,31 @@
+schemaVersion: hybrid/v1
+kind: mixin
+name: codex
+displayName: Codex (Chat Completions gateway)
+description: Pinned Codex CLI with an invocation-owned Responses-to-Chat-Completions bridge.
+agent:
+  name: codex
+  entrypoint: codex
+caps:
+  network:
+    allow: [github.com, release-assets.githubusercontent.com]
+files:
+  - {path: /home/agent/codex-kit/install.py, mode: "0755", source: files/home/codex-kit/install.py}
+  - {path: /home/agent/codex-kit/launch.py, mode: "0755", source: files/home/codex-kit/launch.py}
+  - {path: /home/agent/codex-kit/provider.py, mode: "0644", source: files/home/codex-kit/provider.py}
+  - {path: /home/agent/codex-kit/bridge.py, mode: "0644", source: files/home/codex-kit/bridge.py}
+  - {path: /home/agent/codex-kit/catalog.py, mode: "0644", source: files/home/codex-kit/catalog.py}
+  - {path: /home/agent/codex-kit/process.py, mode: "0644", source: files/home/codex-kit/process.py}
+  - {path: /home/agent/.local/bin/codex, mode: "0755", source: files/home/.local/bin/codex}
+commands:
+  - phase: startup
+    user: "1000"
+    description: Install checksum-pinned Codex as the agent user
+    command: [python3, /home/agent/codex-kit/install.py, --apply]
+agentContext: |
+  Run codex in the guest terminal. The kit consumes ACQ_PROVIDER_INPUT_ROOT
+  and acq-injected credentials; set ACQ_CODEX_PROVIDER if ambiguous and
+  ACQ_CODEX_MODEL to an exact configured deployment ID if no default exists.
+  The bridge supports text and ordinary function tools, not native search,
+  encrypted reasoning, images, or server-side Responses state. SSE is buffered.
+  No proxy port is published. Native Codex permissions remain active.

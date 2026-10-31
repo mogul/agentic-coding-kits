@@ -61,6 +61,8 @@ An agent kit is a `hybrid/v1` mixin that:
 | Kit | Kind | Provides | Status |
 | --- | --- | --- | --- |
 | [`claude-code/`](claude-code/) | Agent | Pinned Claude Code + private Messages-to-Chat-Completions proxy for a configured OpenAI-shaped model provider | **Experimental** — operator-verified on ARM64 MSB; x64 execution pending; browser model picker overstates availability |
+| [`codex/`](codex/) | Agent | Pinned Codex + private Responses-to-Chat-Completions bridge | **Experimental** — real ARM64 CLI and isolated Paseo verified against synthetic provider; live gateway and x64 pending |
+| [`antigravity/`](antigravity/) | Agent | Pinned Google agy + private Gemini-to-Chat-Completions bridge | **Experimental** — real ARM64 CLI and isolated Paseo verified against synthetic provider; live gateway and x64 pending |
 | [`opencode-go-provider/`](opencode-go-provider/) | Provider | OpenCode Go (`openai-compatible`) facts and a 19-model neutral catalog | **Preview** — blocked on the acq credential-binding addition |
 | [`pi-coding-agent/`](pi-coding-agent/) | Agent | Pinned pi CLI + `~/.pi/agent/models.json` renderer | **Preview** — live verification pending acq PR 611 |
 | [`first-mate-skill/`](first-mate-skill/) | Skill | The `paseo-first-mate` Agent Skill and two helper scripts, dropped into `~/.agents/skills` | Offline-verified; no live sandbox run |
@@ -86,6 +88,21 @@ models in the Go docs endpoint table plus one active free/experimental alias
 
 Each kit directory has its own README with specific details and a
 TROUBLESHOOTING guide.
+
+Codex and Antigravity consume the same neutral provider contract as the other
+agent kits. Their native APIs differ, so each owns a text/function compatibility
+bridge. They do not claim that Chat Completions, Responses and Gemini APIs are
+interchangeable. Neither writes a second Paseo model catalog.
+
+For repeatable real-CLI protocol/tool tests without credentials:
+
+```bash
+python3 scripts/verify-native-cli.py codex --binary /path/to/pinned/codex
+python3 scripts/verify-native-cli.py antigravity --binary /path/to/pinned/agy
+```
+
+These tests use isolated synthetic transports and actually execute a fixture
+file tool. They do not prove remote model quality or acq sandbox creation.
 
 ## Layout
 

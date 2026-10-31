@@ -92,7 +92,7 @@ def test_dispatch_commands(kits, name):
     assert cwd == kits / name
     if name in ("opencode-go-provider", "pi-coding-agent"):
         assert commands[:2] == [["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], ["npm", "test"]]
-    elif name == "claude-code":
+    elif name in ("claude-code", "codex", "antigravity"):
         assert commands == [[sys.executable, "scripts/test"]]
     else:
         assert commands == [["bash", "scripts/verify"]]
@@ -105,6 +105,8 @@ def test_ci_matrix_and_dispatch_cover_every_repository_kit():
     assert set(matrix["kit"]) == set(runner.KIT_NAMES) == actual
     assert actual == validator.REQUIRED_KITS
     assert {"kit": "claude-code", "python": "3.12"} in matrix["include"]
+    assert {"kit": "codex", "python": "3.12"} in matrix["include"]
+    assert {"kit": "antigravity", "python": "3.12"} in matrix["include"]
 
 
 @pytest.mark.parametrize("name", ["../claude-code", "/outside-project", "unknown", "claude-code;echo bad"])
