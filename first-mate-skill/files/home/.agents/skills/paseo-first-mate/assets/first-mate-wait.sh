@@ -20,7 +20,8 @@
 #
 # Ownership is the PASEO_AGENT_ID of the caller (override with FIRST_MATE_OWNER). The
 # lock is an flock(2) on FIRST_MATE_DIR/.wait.lock, so it frees itself when the loop
-# dies, including by SIGKILL; there is no pidfile to go stale. Needs flock (util-linux).
+# dies, including by SIGKILL; there is no pidfile to go stale. Needs flock: util-linux on
+# Linux, or `brew install flock` on macOS.
 set -uo pipefail
 
 HERE=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -51,7 +52,7 @@ describe() {
 }
 
 cmd_stop() {
-  local force=0 owner pid i
+  local force=0 owner pid
   [ "${1:-}" = "--force" ] && force=1
   if ! is_running; then echo "none running"; return 0; fi
   owner=$(info_get owner); pid=$(info_get pid)
@@ -59,7 +60,8 @@ cmd_stop() {
     echo "refusing: the loop is owned by ${owner:-unknown}; use 'stop --force' or 'take-over'" >&2
     return 5
   fi
-  if [ -z "$pid" ] || ! tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'first-mate-wait.sh'; then
+  # ps works on Linux and macOS; /proc exists only on Linux.
+  if [ -z "$pid" ] || ! ps -p "$pid" -o args= 2>/dev/null | grep -q 'first-mate-wait.sh'; then
     echo "cannot verify that pid '${pid:-none}' is the loop; not killing anything" >&2
     return 2
   fi
