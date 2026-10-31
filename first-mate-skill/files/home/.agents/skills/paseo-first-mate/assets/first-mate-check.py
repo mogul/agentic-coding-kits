@@ -119,7 +119,7 @@ def short(w, repo):
     for a, r in w["repos"].items():
         if r == repo:
             return a
-    return repo.split("/")[-1]
+    return repo
 
 
 def run(cmd):
@@ -241,8 +241,10 @@ def load_state():
 
 
 def save_state(s):
-    with open(STATE, "w") as fh:
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as fh:
         json.dump(s, fh, indent=1, sort_keys=True)
+    os.replace(tmp, STATE)
 
 
 def manage(w, argv):

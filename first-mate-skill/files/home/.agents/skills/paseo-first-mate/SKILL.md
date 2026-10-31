@@ -153,6 +153,8 @@ Single-change and read-only work are covered by `avoid_when` above.
 12. One coordinator per effort. A resumed or forked session is a non-coordinator
     until the user says it is the coordinator (see section 1). A non-coordinator
     starts no wait loop and takes no action on the watched PRs and agents.
+    `take-over` and `stop --force` act on another agent's loop and need the user's
+    explicit word each time; a standing grant does not cover them.
 
 ## Delivery Levels
 
@@ -448,12 +450,12 @@ one the user prefers and record the choice and any later change in the handoff:
   on an interval and exits only when something changed. The harness notifies the
   coordinator when it finishes, so waiting costs no model calls. There is at most
   one loop per `FIRST_MATE_DIR`, and it is owned by the agent that started it.
-- Prefer the heartbeat if the user plans to fork or resume sessions often. A
-  heartbeat is a named schedule, so it is one object that no fork can duplicate,
-  at the price of a model call per run.
 - **Paseo heartbeat.** A scheduled prompt that runs the check each time. Use
   `paseo heartbeat update <id> --cron ...` to change its cadence (for example,
   hourly while nothing is moving, every 15 minutes once something changes).
+  Prefer it when the user plans to fork or resume sessions often: a heartbeat is a
+  named schedule, so it is one object that no fork can duplicate, at the price of a
+  model call per run.
 
 Either way, a quiet wake-up must not turn into filler. Empty calls (`true`,
 `date > /dev/null`) cost tokens, change nothing, and can run away into hundreds

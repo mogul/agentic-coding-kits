@@ -21,7 +21,9 @@ cp "$WAIT_SRC" "$WORK/bin/first-mate-wait.sh"
 # Stub detector: quiet until a "change" file appears, then prints once.
 cat > "$WORK/bin/first-mate-check.py" <<'PY'
 #!/usr/bin/env python3
-import os
+import os, time
+if os.path.exists(os.path.join(os.environ["FIRST_MATE_DIR"], "slow")):
+    time.sleep(30)
 p = os.path.join(os.environ["FIRST_MATE_DIR"], "change")
 if os.path.exists(p):
     print("CHANGED stub")
@@ -88,6 +90,18 @@ check "bob now owns it" "mine" "$(as bob status | cut -d' ' -f1)"
 check "exactly one loop after take-over" "1" "$(pgrep -fc "$WORK/bin/first-mate-wait.sh (take-over|[0-9])")"
 
 as bob stop >/dev/null 2>&1; wait 2>/dev/null
+
+echo "stop works while the detector is mid-run"
+touch "$FIRST_MATE_DIR/slow"
+as alice 1 5 >/dev/null 2>&1 &
+for _ in $(seq 1 50); do [ "$(as alice status)" != "none" ] && break; sleep 0.1; done
+sleep 0.5
+start=$SECONDS
+quick alice stop >/dev/null 2>&1; check "stop returns 0 during a slow detector" "0" "$?"
+check "stop took under 4s" "yes" "$([ $((SECONDS - start)) -lt 4 ] && echo yes || echo no)"
+check "status is none after slow stop" "none" "$(as alice status)"
+wait 2>/dev/null
+rm -f "$FIRST_MATE_DIR/slow"
 
 echo "a change ends the loop with exit 0 and the report"
 touch "$FIRST_MATE_DIR/change"

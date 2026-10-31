@@ -73,8 +73,12 @@ cmd_stop() {
 }
 
 SLEEP_PID=
+DET_PID=
+OUTF=
 cleanup() {
   [ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null
+  [ -n "$DET_PID" ] && kill "$DET_PID" 2>/dev/null
+  [ -n "$OUTF" ] && rm -f -- "$OUTF"
   [ "$(info_get pid)" = "$$" ] && rm -f -- "$INFO"
 }
 
@@ -92,14 +96,23 @@ cmd_start() {
       "Use 'take-over' only if the user agreed that you are the coordinator." >&2
     exit 5
   fi
+  # Write then rename, so status and stop never read a half-written owner file.
   printf 'owner=%s\npid=%s\nstarted=%s\ninterval=%s\nmax=%s\n' \
-    "$ME" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$interval" "$max" > "$INFO"
+    "$ME" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$interval" "$max" > "$INFO.new" \
+    && mv -f -- "$INFO.new" "$INFO"
+  OUTF=$(mktemp "$DIR/.wait.out.XXXXXX") || exit 2
   trap cleanup EXIT
   trap 'exit 143' TERM INT
   deadline=$(( $(date +%s) + max * 60 ))
   while :; do
     # Children must not inherit the lock fd, or a killed loop would keep the lock.
-    out=$(python3 "$HERE/first-mate-check.py" 2>&1 9>&-)
+    # The detector runs in the background and is waited on, so a stop (SIGTERM) is
+    # handled at once instead of after the detector's network calls finish.
+    python3 "$HERE/first-mate-check.py" >"$OUTF" 2>&1 9>&- &
+    DET_PID=$!
+    wait "$DET_PID"
+    DET_PID=
+    out=$(cat -- "$OUTF")
     if [ -n "$out" ]; then
       printf '%s\n' "$out"
       exit 0
