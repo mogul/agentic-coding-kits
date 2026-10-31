@@ -424,11 +424,13 @@ of calls. Run the check once, then end the turn.
 Bundled assets:
 
 - `assets/first-mate-check.py` queries the watched PRs (head, draft state, reviews,
-  inline comments, check results, merge state), issues, releases, other agents,
-  and pending permission prompts in parallel, compares them with a saved
+  inline comments, check results, merge state), issues, releases, **branches**
+  (each new commit), **workflows** (latest run on a branch: head, status,
+  conclusion), other agents, and pending permission prompts in parallel, compares them with a saved
   snapshot, and prints **nothing** when nothing changed. A transient API error
   keeps the previous value and is reported. Manage the watch list with `add`,
-  `remove`, `prune`, `repo`, and `list`; `--show` prints the snapshot without
+  `remove`, `prune`, `repo`, and `list` (for example `add branch kits@main`,
+  `add workflow kits:deploy.yml@main`); `--show` prints the snapshot without
   saving, and `--reset` forgets state. State and watch files live in
   `FIRST_MATE_DIR` (default `./tmp`, which must be ignored by git).
 - `assets/first-mate-wait.sh INTERVAL_MIN MAX_MIN` runs the check on an interval
@@ -446,7 +448,11 @@ Bundled assets:
 Procedure:
 
 1. Copy both assets next to each other into the coordinator worktree's ignored
-   `tmp/`, register the repositories, and add the watch list.
+   `tmp/`, register the repositories, and add the watch list. Always watch the
+   default branch of every repository in scope, and the deploy or release
+   workflows that the effort's milestone depends on. A merge you did not make
+   (another session, another person) and a pipeline that stays red after your
+   merge are both invisible to a PR-only watch list.
 2. For the wait loop, run `first-mate-wait.sh status` first, then start the
    script as a **background** shell command only if it says `none`. For a
    heartbeat, have its prompt run `first-mate-check.py` once.
@@ -462,6 +468,9 @@ Procedure:
    ran and reported nothing, never as a guess.
 5. On a change, read the report, act only on concrete changes, update the handoff,
    report meaningful changes or blockers to the user, and start the next wait.
+   When a branch report shows a merge, reconcile before anything else: which
+   open recommendations, agents, and PRs does it supersede, conflict with, or
+   unblock? Another session may have fixed the problem differently.
 6. Prune merged and closed items from the watch list.
 7. Report a loop as running only from a `status` result obtained this turn,
    never from the handoff or from memory.

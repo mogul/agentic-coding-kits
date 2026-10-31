@@ -10,7 +10,14 @@ ignored by git).
 What to watch lives in first-mate-watch.json, not in this script:
   {"repos": {"qs": "OWNER/repo", ...},
    "prs": ["qs#611", ...], "issues": ["qs#503", ...],
-   "releases": ["qs", ...], "ignore_agents": ["First Mate"]}
+   "releases": ["qs", ...],
+   "branches": ["qs@main", ...],
+   "workflows": ["qs:deploy-dev.yml@main", ...],
+   "ignore_agents": ["First Mate"]}
+
+A watched branch reports each new commit on it (so work that lands from other
+sessions is seen). A watched workflow reports the latest run on a branch: its
+head, status, and conclusion (so a deploy that stays red after a merge is seen).
 
 Usage:
   first-mate-check.py                    compare to saved state, print changes, save
@@ -18,7 +25,10 @@ Usage:
   first-mate-check.py --reset            forget saved state (next run is a baseline)
   first-mate-check.py list               print the watch list
   first-mate-check.py add pr qs#637      start watching (also: issue; also OWNER/repo#N)
-  first-mate-check.py remove pr qs#611   stop watching and forget its state
+  first-mate-check.py add branch qs@main watch new commits on a branch
+  first-mate-check.py add workflow qs:deploy-dev.yml@main
+                                         watch the latest run of a workflow on a branch
+  first-mate-check.py remove pr qs#611   stop watching and forget its state (also: issue, branch, workflow)
   first-mate-check.py repo qs OWNER/repo register a repo alias
   first-mate-check.py prune              stop watching merged/closed PRs and closed issues
 """
@@ -40,9 +50,14 @@ DEFAULT_WATCH = {
     "prs": [],
     "issues": [],
     "releases": [],
+    "branches": [],
+    "workflows": [],
     "ignore_agents": ["First Mate"],
 }
 
+BRANCH_REF = re.compile(r"^(?P<alias>[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?)@(?P<branch>.+)$")
+WORKFLOW_REF = re.compile(
+    r"^(?P<alias>[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?):(?P<workflow>[^@:]+)@(?P<branch>.+)$")
 BAD_CONCLUSIONS = {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 BAD_STATES = {"FAILURE", "ERROR"}
 REF = re.compile(r"^(?:(?P<alias>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_-]+)#)(?P<num>\d+)$")
@@ -74,6 +89,30 @@ def resolve(w, ref):
     if not repo:
         raise SystemExit(f"unknown repo alias '{alias}'; register it: repo {alias} OWNER/repo")
     return repo, int(m.group("num"))
+
+
+def repo_of(w, alias):
+    repo = w["repos"].get(alias, alias if "/" in alias else None)
+    if not repo:
+        raise SystemExit(f"unknown repo alias '{alias}'; register it: repo {alias} OWNER/repo")
+    return repo
+
+
+def parse_branch(w, ref):
+    m = BRANCH_REF.match(ref)
+    if not m:
+        raise SystemExit(f"bad branch reference '{ref}' (want alias@branch)")
+    repo = repo_of(w, m.group("alias"))
+    return repo, m.group("branch"), f"{short(w, repo)}@{m.group('branch')}"
+
+
+def parse_workflow(w, ref):
+    m = WORKFLOW_REF.match(ref)
+    if not m:
+        raise SystemExit(f"bad workflow reference '{ref}' (want alias:workflow-file@branch)")
+    repo = repo_of(w, m.group("alias"))
+    wf, br = m.group("workflow"), m.group("branch")
+    return repo, wf, br, f"{short(w, repo)}:{wf}@{br}"
 
 
 def short(w, repo):
@@ -134,6 +173,22 @@ def release_snapshot(repo):
     return gh_json(["release", "view", "--repo", repo, "--json", "tagName"])["tagName"]
 
 
+def branch_snapshot(repo, branch):
+    d = gh_json(["api", f"repos/{repo}/commits/{branch}"])
+    subject = (d.get("commit", {}).get("message") or "").splitlines()[:1]
+    return f"{d['sha'][:8]} {(subject[0] if subject else '')[:80]}"
+
+
+def workflow_snapshot(repo, workflow, branch):
+    rows = gh_json([
+        "run", "list", "--repo", repo, "--workflow", workflow, "--branch", branch,
+        "--limit", "1", "--json", "databaseId,headSha,status,conclusion"])
+    if not rows:
+        return "no runs"
+    r = rows[0]
+    return f"run {r['databaseId']} head={r['headSha'][:8]} {r['status']} {r.get('conclusion') or '-'}"
+
+
 def agents_snapshot(ignore):
     rows = json.loads(run(["paseo", "ls", "--json"]))
     items = sorted(
@@ -158,6 +213,12 @@ def collect(w):
     for alias in w["releases"]:
         repo = w["repos"].get(alias, alias)
         jobs[f"release {short(w, repo)}"] = (release_snapshot, repo)
+    for ref in w["branches"]:
+        repo, br, label = parse_branch(w, ref)
+        jobs[f"branch {label}"] = (branch_snapshot, repo, br)
+    for ref in w["workflows"]:
+        repo, wf, br, label = parse_workflow(w, ref)
+        jobs[f"workflow {label}"] = (workflow_snapshot, repo, wf, br)
     jobs["agents"] = (agents_snapshot, set(w["ignore_agents"]))
     jobs["permission prompts"] = (permits_snapshot,)
     results, errors = {}, {}
@@ -188,6 +249,22 @@ def manage(w, argv):
     cmd = argv[0]
     if cmd == "list":
         print(json.dumps(w, indent=1))
+    elif cmd in ("add", "remove") and len(argv) == 3 and argv[1] in ("branch", "workflow"):
+        kind = argv[1]
+        key = "branches" if kind == "branch" else "workflows"
+        label = parse_branch(w, argv[2])[2] if kind == "branch" else parse_workflow(w, argv[2])[3]
+        if cmd == "add":
+            if label not in w[key]:
+                w[key].append(label)
+            save_watch(w)
+            print(f"watching {kind} {label}")
+        else:
+            w[key] = [x for x in w[key] if x != label]
+            save_watch(w)
+            st = load_state()
+            st.pop(f"{kind} {label}", None)
+            save_state(st)
+            print(f"stopped watching {kind} {label}")
     elif cmd in ("add", "remove") and len(argv) == 3 and argv[1] in ("pr", "issue"):
         key = "prs" if argv[1] == "pr" else "issues"
         repo, n = resolve(w, argv[2])

@@ -149,7 +149,7 @@ info "5. Shipped detector has no baked-in watch targets"
 if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   mkdir -p "$WORK/state"
   if FIRST_MATE_DIR="$WORK/state" "$PYTHON_BIN" "$CHECK_PY" list >"$WORK/list.out" 2>"$WORK/list.err" \
-    && "$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if not (d.get("repos") or d.get("prs") or d.get("issues") or d.get("releases")) else 1)' "$WORK/list.out"; then
+    && "$PYTHON_BIN" -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if not (d.get("repos") or d.get("prs") or d.get("issues") or d.get("releases") or d.get("branches") or d.get("workflows")) else 1)' "$WORK/list.out"; then
     ok "first-mate-check.py ships with an empty watch list"
   else
     bad "first-mate-check.py list failed or returned a non-empty watch list"
