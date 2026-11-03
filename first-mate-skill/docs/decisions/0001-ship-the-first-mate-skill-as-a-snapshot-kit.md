@@ -68,3 +68,11 @@ The snapshot moved to skill version 1.3.0. `first-mate-wait.sh` now holds an
 (run from `scripts/verify`) covers it offline with a stub detector. This changes
 the shipped script, not the kit's shape: still files only, no commands, no
 egress. The script now also requires `flock` from util-linux on the sandbox image.
+
+## Update 2026-11-03: skill 1.4.0
+
+The snapshot moved to skill version 1.4.0. `first-mate-check.py` now scopes its
+agent watch by the caller's `paseo.parent-agent-id` label instead of the agent's
+name, and agent/permission watching is opt-in and off by default (`agents on` /
+`permits on`). The kit's shape is unchanged: still files only, no commands, no
+egress.

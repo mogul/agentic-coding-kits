@@ -1,7 +1,7 @@
 ---
 name: paseo-first-mate
 id: paseo-first-mate
-version: "1.3.0"
+version: "1.4.0"
 title: "Paseo First Mate"
 description: "Coordinate a multi-issue engineering effort through isolated Paseo workspaces, structured GitHub metadata, dependency-aware delivery, change-detecting follow-up, and a durable handoff."
 type: skill
@@ -71,6 +71,8 @@ portability:
   chatgpt: false
   generic_llm: false
 changelog:
+  - version: "1.4.0"
+    changes: "Agent watching reworked: scoped by `paseo.parent-agent-id` label instead of agent name, and agent/permission watching is now opt-in and off by default (`agents on` / `permits on`). The harness already sends finish notices and surfaces pending permits, so watching them by default made the loop wake on the coordinator's own create/archive/finish actions."
   - version: "1.3.0"
     changes: "One coordinator and one wait loop per effort (owner-keyed flock in the wait script with status, stop, and take-over; forks and resumed sessions are non-coordinators; never report a loop as running without a status result from this turn). Detector watches branches and workflows. Fresh-base rule, verified agent claims, and reading finish notices against agent status. Runtime acceptance signal, mutation proof, and post-merge proof. Repository PR standards override the template. Pending Decisions and Held Items handoff section, recorded permission policies, shape-only host reads, drafts for human threads, cleanup on merge, and new troubleshooting rows."
   - version: "1.2.0"
@@ -466,10 +468,14 @@ Bundled assets:
 - `assets/first-mate-check.py` queries the watched PRs (head, draft state, reviews,
   inline comments, check results, merge state), issues, releases, **branches**
   (each new commit), **workflows** (latest run on a branch: head, status,
-  conclusion), other agents, and pending permission prompts in parallel, compares them with a saved
-  snapshot, and prints **nothing** when nothing changed. A transient API error
-  keeps the previous value and is reported. Manage the watch list with `add`,
-  `remove`, `prune`, `repo`, and `list` (for example `add branch kits@main`,
+  conclusion) in parallel, compares them with a saved snapshot, and prints
+  **nothing** when nothing changed. Your own delegated agents and pending
+  permission prompts are watched only when you run `agents on` / `permits on`
+  (off by default: the harness already sends finish notices and surfaces permits,
+  so watching them here would wake the loop on the coordinator's own actions). A
+  transient API error keeps the previous value and is reported. Manage the watch
+  list with `add`, `remove`, `prune`, `repo`, `agents`, `permits`, and `list`
+  (for example `add branch kits@main`,
   `add workflow kits:deploy.yml@main`); `--show` prints the snapshot without
   saving, and `--reset` forgets state. State and watch files live in
   `FIRST_MATE_DIR` (default `./tmp`, which must be ignored by git).
@@ -734,6 +740,7 @@ Before declaring coordination complete, verify:
 | Dependent PR conflicts after upstream merge | Preserve work, restack on current base, rerun focused checks, and refresh draft CI. |
 | Disk cleanup threatens blocked work | Retain dirty or dependency-blocked workspaces and record them in the handoff. |
 | Several wait loops, or duplicate wake-ups | Run `first-mate-wait.sh status`. With the lock there is at most one loop; duplicates come from an older copy of the script or a different `FIRST_MATE_DIR`. Stop the extras, and check for a forked session acting as a second coordinator. |
+| The loop wakes on the coordinator's own actions (archiving or finishing a delegated agent) | Agent and permit watching is off by default for exactly this reason. Run `first-mate-check.py agents off` and `permits off`, then re-baseline. Only enable them for a heartbeat flow with no harness finish notices. |
 | A forked session inherits "wait loop running" from the handoff | Treat it as unverified. The fork is a non-coordinator: no loop, read-only `--show`, and ask the user before taking over. |
 | Start exits 5 (another owner holds the loop) | Do not force it. Ask the user who the coordinator is; use `take-over` only on their word. |
 | A quiet turn fills with empty tool calls | Stop. Run the check once and end the turn (section 8). |

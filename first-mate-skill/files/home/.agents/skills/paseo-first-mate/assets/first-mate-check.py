@@ -12,8 +12,7 @@ What to watch lives in first-mate-watch.json, not in this script:
    "prs": ["qs#611", ...], "issues": ["qs#503", ...],
    "releases": ["qs", ...],
    "branches": ["qs@main", ...],
-   "workflows": ["qs:deploy-dev.yml@main", ...],
-   "ignore_agents": ["First Mate"]}
+   "workflows": ["qs:deploy-dev.yml@main", ...]}
 
 A watched branch reports each new commit on it (so work that lands from other
 sessions is seen). A watched workflow reports the latest run on a branch: its
@@ -31,6 +30,8 @@ Usage:
   first-mate-check.py remove pr qs#611   stop watching and forget its state (also: issue, branch, workflow)
   first-mate-check.py repo qs OWNER/repo register a repo alias
   first-mate-check.py prune              stop watching merged/closed PRs and closed issues
+  first-mate-check.py agents on|off      watch your own delegated agents (off by default)
+  first-mate-check.py permits on|off     watch pending permission prompts (off by default)
 """
 import concurrent.futures as cf
 import json
@@ -53,7 +54,13 @@ DEFAULT_WATCH = {
     "releases": [],
     "branches": [],
     "workflows": [],
-    "ignore_agents": ["First Mate"],
+    # Local orchestration watches are OFF by default: the harness already sends
+    # "[Agent finished]" notices and surfaces pending permission prompts, so
+    # watching the coordinator's own delegated agents (and its own permits) here
+    # would make the loop wake on its own actions. Enable with `agents on` /
+    # `permits on` for heartbeat flows that receive no harness finish notices.
+    "watch_agents": False,
+    "watch_permits": False,
 }
 
 BRANCH_REF = re.compile(r"^(?P<alias>[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?)@(?P<branch>.+)$")
@@ -195,11 +202,14 @@ def workflow_snapshot(repo, workflow, branch):
     return f"run {r['databaseId']} head={r['headSha'][:8]} {r['status']} {r.get('conclusion') or '-'}"
 
 
-def agents_snapshot(ignore):
-    rows = json.loads(run(["paseo", "ls", "--json"]))
+def agents_snapshot(self_id):
+    args = ["paseo", "ls", "--json"]
+    if self_id:
+        args += ["--label", f"paseo.parent-agent-id={self_id}"]
+    rows = json.loads(run(args))
     items = sorted(
         f"{r['shortId']}:{r['status']}:{r.get('name', '')[:36]}"
-        for r in rows if r.get("name") not in ignore)
+        for r in rows)
     return "; ".join(items) or "none"
 
 
@@ -225,8 +235,10 @@ def collect(w):
     for ref in w["workflows"]:
         repo, wf, br, label = parse_workflow(w, ref)
         jobs[f"workflow {label}"] = (workflow_snapshot, repo, wf, br)
-    jobs["agents"] = (agents_snapshot, set(w["ignore_agents"]))
-    jobs["permission prompts"] = (permits_snapshot,)
+    if w.get("watch_agents"):
+        jobs["agents"] = (agents_snapshot, os.environ.get("PASEO_AGENT_ID", ""))
+    if w.get("watch_permits"):
+        jobs["permission prompts"] = (permits_snapshot,)
     results, errors = {}, {}
     with cf.ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(*j): k for k, j in jobs.items()}
@@ -312,6 +324,11 @@ def manage(w, argv):
         save_watch(w)
         save_state(st)
         print("pruned: " + (", ".join(dropped) or "nothing"))
+    elif cmd in ("agents", "permits") and len(argv) == 2 and argv[1] in ("on", "off"):
+        key = "watch_agents" if cmd == "agents" else "watch_permits"
+        w[key] = (argv[1] == "on")
+        save_watch(w)
+        print(f"{cmd} watching {'on' if w[key] else 'off'}")
     else:
         raise SystemExit(__doc__)
 
