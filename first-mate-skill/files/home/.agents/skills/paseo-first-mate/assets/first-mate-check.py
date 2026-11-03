@@ -36,6 +36,7 @@ import concurrent.futures as cf
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -123,7 +124,12 @@ def short(w, repo):
 
 
 def run(cmd):
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT)
+    exe = shutil.which(cmd[0])
+    if sys.platform == "win32" and exe and exe.lower().endswith((".cmd", ".bat")):
+        # Windows cannot exec a .cmd/.bat directly; route it through cmd.exe.
+        out = subprocess.run(subprocess.list2cmdline(cmd), capture_output=True, text=True, timeout=TIMEOUT, shell=True)
+    else:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT)
     if out.returncode != 0:
         raise RuntimeError((out.stderr or out.stdout).strip().splitlines()[-1][:160])
     return out.stdout
