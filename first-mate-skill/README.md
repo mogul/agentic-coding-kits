@@ -14,7 +14,7 @@ network hosts.
 
 ```text
 ~/.agents/skills/paseo-first-mate/
-  SKILL.md                    the skill (version 1.3.0)
+  SKILL.md                    the skill (version 1.4.0)
   assets/first-mate-check.py  change detector (prints nothing when nothing changed)
   assets/first-mate-wait.sh   background wait loop around the detector; one loop per
                               FIRST_MATE_DIR, owned by the starting agent (flock)
