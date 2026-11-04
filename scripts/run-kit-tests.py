@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-KIT_NAMES = ("opencode-go-provider", "pi-coding-agent", "first-mate-skill", "claude-code", "codex", "antigravity")
+KIT_NAMES = ("opencode-go-provider", "pi-coding-agent", "personal", "claude-code", "codex", "antigravity")
 
 
 def test_commands(root: Path, name: str, *, install: bool = False) -> tuple[Path, list[list[str]]]:
@@ -25,7 +25,7 @@ def test_commands(root: Path, name: str, *, install: bool = False) -> tuple[Path
             commands.insert(0, ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"])
         if name == "pi-coding-agent":
             commands.append(["bash", "scripts/verify"])
-    elif name == "first-mate-skill":
+    elif name == "personal":
         commands = [["bash", "scripts/verify"]]
     else:
         # The kit owns its isolated, hash-locked runtime test environment.

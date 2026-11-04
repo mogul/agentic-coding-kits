@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 PATTERNS_REF = "a290d5d80737fc739e7ec139da0eeaf438631631"
-REQUIRED_KITS = {"opencode-go-provider", "pi-coding-agent", "first-mate-skill", "claude-code", "codex", "antigravity"}
+REQUIRED_KITS = {"opencode-go-provider", "pi-coding-agent", "personal", "claude-code", "codex", "antigravity"}
 
 
 def require_file(path: Path) -> Path:
@@ -86,11 +86,33 @@ def validate_git_executable_modes(root: Path) -> None:
         )
 
 
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def link_targets(text: str) -> list[str]:
+    """Markdown link targets outside fenced code blocks (an example is not a link)."""
+    targets: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        marker = FENCE.match(line)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = (token[0], len(token))
+                continue
+            if token[0] == fence[0] and len(token) >= fence[1]:
+                fence = None
+                continue
+        if fence is None:
+            targets += re.findall(r"\]\(([^)\s]+)\)", line)
+    return targets
+
+
 def validate_local_docs_and_modes(kit: Path) -> None:
     for document in kit.rglob("*.md"):
         if any(part in {"node_modules", "__pycache__", ".pytest_cache"} for part in document.parts):
             continue
-        for target in re.findall(r"\]\(([^)\s]+)\)", document.read_text(encoding="utf-8")):
+        for target in link_targets(document.read_text(encoding="utf-8")):
             if "://" in target or target.startswith(("#", "mailto:")):
                 continue
             if not (document.parent / target.split("#", 1)[0]).exists():

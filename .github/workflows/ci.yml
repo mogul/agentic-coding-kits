@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kit: [opencode-go-provider, pi-coding-agent, first-mate-skill, claude-code, codex, antigravity]
+        kit: [opencode-go-provider, pi-coding-agent, personal, claude-code, codex, antigravity]
         python: ["3.14"]
         include:
           - kit: claude-code

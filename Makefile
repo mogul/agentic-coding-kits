@@ -3,7 +3,7 @@ VENV ?= .tmp/ci-venv
 PY := $(VENV)/bin/python
 PATTERNS ?= .patterns
 LINT_PATHS := scripts/validate-kits.py scripts/run-kit-tests.py scripts/tests claude-code/files claude-code/tests claude-code/scripts/test claude-code/scripts/verify
-LINT_PATHS += codex/files codex/tests codex/scripts antigravity/files antigravity/tests antigravity/scripts scripts/verify-native-cli.py
+LINT_PATHS += codex/files codex/tests codex/scripts antigravity/files antigravity/tests antigravity/scripts scripts/verify-native-cli.py personal/scripts/vendor-pocock-skills
 GITLEAKS ?= gitleaks
 
 .PHONY: setup check lint test validate security

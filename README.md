@@ -65,7 +65,7 @@ An agent kit is a `hybrid/v1` mixin that:
 | [`antigravity/`](antigravity/) | Agent | Pinned Google agy + private Gemini-to-Chat-Completions bridge | **Experimental** — real ARM64 CLI and isolated Paseo verified against synthetic provider; live gateway and x64 pending |
 | [`opencode-go-provider/`](opencode-go-provider/) | Provider | OpenCode Go (`openai-compatible`) facts and a 19-model neutral catalog | **Preview** — blocked on the acq credential-binding addition |
 | [`pi-coding-agent/`](pi-coding-agent/) | Agent | Pinned pi CLI + `~/.pi/agent/models.json` renderer | **Preview** — live verification pending acq PR 611 |
-| [`first-mate-skill/`](first-mate-skill/) | Skill | The `paseo-first-mate` Agent Skill and two helper scripts, dropped into `~/.agents/skills` | Offline-verified; no live sandbox run |
+| [`personal/`](personal/) | Skill | The author's personal layer, dropped into `~/.agents/skills`: the `paseo-first-mate` skill and 27 vendored skills by [Matt Pocock](https://github.com/mattpocock/skills) (MIT, pinned commit; his code review is installed as `pocock-code-review`). See [`personal/NOTICE`](personal/NOTICE) for credits | Offline-verified; no live sandbox run |
 
 **Preview status.**
 
@@ -122,10 +122,15 @@ pi-coding-agent/              agent kit
   scripts/verify              offline gate + optional live acq/msb check
   tests/                      node:test suite, fixtures, vendored schemas
   docs/decisions/             design records
-first-mate-skill/             skill kit
+personal/                     skill kit
   spec.yaml                   hybrid/v1 mixin definition (file drops only)
-  files/home/.agents/skills/  the paseo-first-mate skill and its assets
+  files/home/.agents/skills/  the paseo-first-mate skill and the vendored Pocock skills
+  vendor/                     lock file: upstream commit and a sha256 per vendored file
   scripts/verify              offline gate
+  scripts/vendor-pocock-skills  host-side tool that regenerates the vendored files
+  NOTICE                      third-party credits and licences
+  AGENTS.md                   rules for agents editing the kit
+  docs/vendored-skills.md     how the vendored copies differ from upstream, and how to update
   docs/decisions/             design records
 ```
 
@@ -282,4 +287,5 @@ RUN_ACQ=1 scripts/verify  # live acq/msb
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE). The `personal` kit also contains other people's work
+under their own MIT licences; see [`personal/NOTICE`](personal/NOTICE).
