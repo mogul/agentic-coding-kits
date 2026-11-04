@@ -1,0 +1,62 @@
+personal kit: third-party notices and provenance
+
+The kit as a whole is distributed under the MIT licence of this repository (see
+../LICENSE, Copyright (c) 2026 Bret Mogilefsky). It contains the work of other people,
+under their own licences. Their notices are shipped into the sandbox with the copies,
+at ~/.agents/licenses/, and are reproduced unchanged under
+files/home/.agents/licenses/ in this directory.
+
+1. Matt Pocock's skills
+
+   27 skills (the 20 under skills/engineering/ and 7 under skills/productivity/ that his
+   Claude Code plugin promotes), copied from https://github.com/mattpocock/skills at the
+   commit recorded in vendor/mattpocock-skills.json.
+
+   Licence: MIT. Copyright (c) 2026 Matt Pocock.
+   Notice: files/home/.agents/licenses/mattpocock-skills-LICENSE
+
+   The copies are byte-identical to upstream except for one rename (his code-review
+   skill is installed as pocock-code-review) and the references that follow from it.
+   Every difference is listed in docs/vendored-skills.md. Matt Pocock did not make or
+   review these changes and is not responsible for them.
+
+2. HumanLayer's show-me skill, inside Matt Pocock's pr skill
+
+   The "Summary" section of the pr skill (its menu of visuals and placement guidance) is
+   adapted from the show-me skill by Dex Horthy of HumanLayer, as the pr skill's own
+   CREDITS.md and SKILL.md metadata say. Comparing non-blank lines when this notice was
+   written, 88 of the 93 lines of the pr skill's "### Summary" section (its heading
+   through the line before "### Evidence") are identical to a line of show-me at
+   https://github.com/humanlayer/skills (commit 4d69d20f6e9b57b4fcf0d501ccfb1be961f0f329).
+   The five that differ are the two headings, the one-sentence intro, and two lines of
+   the TypeScript example.
+
+   Licence of that repository: MIT. Copyright (c) 2026 HumanLayer.
+   Notice: files/home/.agents/licenses/humanlayer-skills-LICENSE
+   (identical to the LICENSE of humanlayer/skills at the commit above and at its first
+   show-me commit).
+
+   The humanlayer/humanlayer monorepo, where a copy of show-me also lives, is licensed
+   Apache-2.0 as a whole (its own NOTICE lists only other MIT folders). Matt Pocock's
+   CREDITS.md links to that monorepo, but the pr skill's SKILL.md metadata points at the
+   MIT-licensed humanlayer/skills repository, so this kit takes the notice from there.
+
+3. Ideas cited inside the skills
+
+   The skills credit a few ideas by name: "Design It Twice" (John Ousterhout), "seam"
+   (Michael Feathers), and the code smells in Martin Fowler's Refactoring. Those credits
+   are Matt Pocock's and are shipped as he wrote them. They are listed here for
+   completeness; this kit has not checked whether any text is reproduced from those works.
+
+4. The paseo-first-mate skill and the kit's own code
+
+   Authored by Bret Mogilefsky. This kit's scripts, tests and documentation were
+   written with AI assistance (OpenCode, model claude-sonnet-5.5); the paseo-first-mate
+   skill was developed with AI assistance across several sessions. MIT, under the
+   repository licence. AI-assisted changes are disclosed in the pull request that
+   introduces them.
+
+To add third-party material to this kit: ship its licence under
+files/home/.agents/licenses/, list it in spec.yaml, add an entry to THIRD_PARTY in
+scripts/vendor-pocock-skills (if it is part of the vendored set) or to this file, and
+describe it in docs/vendored-skills.md.

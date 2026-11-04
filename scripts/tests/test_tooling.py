@@ -65,6 +65,20 @@ def test_broken_local_doc_link_fails(kits):
         validator.validate_local_docs_and_modes(kit)
 
 
+def test_link_check_ignores_fenced_examples_but_not_real_links(kits):
+    kit = kits / "claude-code"
+    (kit / "README.md").write_text(
+        "```md\n[Example](./src/missing/GLOSSARY.md)\n```\n\n"
+        "~~~\n[Tilde example](also-missing.md)\n~~~\n\n"
+        "````md\n```\n[Nested](nested-missing.md)\n```\n````\n",
+        encoding="utf-8",
+    )
+    validator.validate_local_docs_and_modes(kit)
+    (kit / "README.md").write_text("```md\n[Fenced](ok-missing.md)\n```\n[Real](real-missing.md)\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="real-missing.md"):
+        validator.validate_local_docs_and_modes(kit)
+
+
 def test_provider_normalizer_requires_executable_mode(kits):
     kit = kits / "opencode-go-provider"
     (kit / "provider-input.json").write_text('{"normalizerPath":"normalizer"}', encoding="utf-8")
