@@ -55,29 +55,46 @@ plugin directory and config, and `paseo plugin install` needs a running daemon.
    configured, so a second run, a daemon restart that re-runs startup, or a snapshot that
    kept the plugin does not error or re-clone.
 
-6. **No in-place updates.** Plugins install at create time, like provider input. To move
+6. **Plugins with a `build` step are allowed, reviewed by hand.** `beautiful-chat`'s
+   manifest runs `npm ci --include=dev` on install, unsandboxed, so its dev dependencies
+   (React Native, TypeScript, about 360 packages) are fetched and their lifecycle scripts
+   may run. Reviewed at the pinned commit: every lockfile entry resolves from
+   `registry.npmjs.org` with an integrity hash, and the only package with an install
+   script is `fsevents` (macOS only, skipped on Linux). That is a point-in-time review of a
+   lockfile, not a guarantee. The kit cannot see a plugin's `build` list from the installer,
+   so `scripts/verify` does not check it; the README tells whoever bumps a pin to read it.
+
+7. **No in-place updates.** Plugins install at create time, like provider input. To move
    a pin, change the script and recreate the sandbox.
 
 ## What was tested
 
-Against a real Paseo 0.12.0 daemon in an isolated `PASEO_HOME`, with a real `git clone`
-of the pinned commit (the registry was not used): starting with `pluginsEnabled` unset, the script
-set it, reloaded, installed `quote-notes` from `git:xzthemeofsss/paseo-plugins` at the
-pinned SHA, and `paseo plugin ls` reported it `running` at that SHA. A second run
-logged "already installed; skipped". With no daemon it logged a clear message after the
-wait and exited 0. The guard refused a branch, a short SHA, an uppercase SHA, an npm range
-and a bare registry id; a second concurrent run exited at the run lock; a TERM left no
-lock behind. Not tested: a real `acq run` with the paseo kit on msb or sbx (no `acq` in
-the development sandbox), the paseo kit's newer CLI pins (0.12.0 here), a daemon restart
-landing mid-install, and `git clone` behind an HTTPS-inspecting proxy whose CA is not in
-the system store.
+Against a real Paseo 0.12.0 daemon in an isolated `PASEO_HOME`, with real `git clone`s and
+npm installs (the registry at `plugins.paseo.sh` was not used): starting with `pluginsEnabled`
+unset, one run of the script set it, reloaded, and installed all four plugins. `paseo plugin
+ls` reported each `running` at its pin: `quote-notes` and `beautiful-chat` at their commits,
+`skills` 0.4.0 and `mermaid` 0.5.0 from npm (the lockfiles the daemon wrote carry the same
+sha512s recorded in the README). `beautiful-chat`'s `npm ci` build took about 7 seconds. A
+second run logged "already installed; skipped" for each. With no daemon it logged a clear
+message after the wait and exited 0. The run-time guard refused a branch, a short SHA, an
+uppercase SHA, an npm range or tag, a bare registry id, `git:` sources with extra path
+segments or `@ref`, and `npm:github:` sources, all before calling `paseo`. A second
+concurrent run exited at the run lock, and a TERM left no lock behind.
+
+Not tested: a real `acq run` with the paseo kit on msb or sbx (no `acq` in the development
+sandbox), the paseo kit's newer CLI pins (0.12.0 here), a daemon restart landing mid-install,
+a build that outlasts the CLI's own install timeout, `git clone` behind an HTTPS-inspecting
+proxy whose CA is not in the system store, and how any of the plugins look in a browser.
 
 ## Consequences
 
 - The kit now depends on the paseo kit for the plugin step to do anything. Kits cannot
   declare dependencies yet, so this is documented, and the script reports a missing
   daemon instead of failing.
-- The kit adds one egress host and one background process that lives for a few seconds
+- The kit adds two egress hosts (`github.com`, `registry.npmjs.org`) and one background process that lives for a few seconds
   to a few minutes after sandbox start.
 - Updating a plugin is a code-review task: read the diff between pins, then bump.
 - `scripts/verify` gains section 3d and also shellchecks the installer.
+- `mermaid` and `beautiful-chat` conflict until Beautiful Chat's **Assistant markdown**
+  setting is switched off in each browser origin. That setting is client-side
+  `localStorage`, so the kit cannot apply it. Documented in the README.

@@ -92,6 +92,11 @@ plugin_listed() {
   paseo plugin ls --home "$PASEO_HOME_DIR" --json 2>/dev/null | grep -qF "\"id\": \"$1\""
 }
 
+plugin_revision() {
+  paseo plugin ls "$1" --home "$PASEO_HOME_DIR" --json 2>/dev/null |
+    sed -n 's/.*"currentRevision": *"\([^"]*\)".*/\1/p' | head -n 1
+}
+
 plugin_status() {
   paseo plugin ls "$1" --home "$PASEO_HOME_DIR" --json 2>/dev/null |
     sed -n 's/.*"status": *"\([a-z]*\)".*/\1/p' | head -n 1
@@ -105,6 +110,12 @@ install_plugin() {
   id="$1"; source="$2"; pin="${3:-}"
   case "$source" in
     git:*)
+      repo="${source#git:}"
+      case "$repo" in
+        ""|/*|*/|*/*/*|*..*|*[!A-Za-z0-9_./-]*) log "$id REFUSED: git source must be git:owner/repo, got '$source'"; return 0 ;;
+        */*) : ;;
+        *) log "$id REFUSED: git source must be git:owner/repo, got '$source'"; return 0 ;;
+      esac
       case "$pin" in
         *[!0-9a-f]*|"") log "$id REFUSED: git source needs a full lowercase commit SHA, got '$pin'"; return 0 ;;
       esac
@@ -112,6 +123,10 @@ install_plugin() {
       target="$source"
       ;;
     npm:*)
+      pkg="${source#npm:}"
+      case "$pkg" in
+        ""|*[!A-Za-z0-9_./@-]*|?*@*|*..*|*/*/*) log "$id REFUSED: npm source must be npm:package or npm:@scope/package with no version, got '$source'"; return 0 ;;
+      esac
       case "$pin" in
         [0-9]*.[0-9]*.[0-9]*) : ;;
         *) log "$id REFUSED: npm source needs an exact x.y.z version, got '$pin'"; return 0 ;;
@@ -125,16 +140,22 @@ install_plugin() {
   esac
 
   if plugin_listed "$id"; then
-    log "$id already installed (status: $(plugin_status "$id")); skipped"
+    have="$(plugin_revision "$id")"
+    if [ -n "$have" ] && [ "$have" != "$pin" ]; then
+      log "$id already installed at '$have', not the pin '$pin' (status: $(plugin_status "$id")); skipped, NOT changed"
+    else
+      log "$id already installed (status: $(plugin_status "$id")); skipped"
+    fi
     return 0
   fi
 
+  install_deadline=$(( $(date +%s) + WAIT_SECONDS ))
   n=1
   while [ "$n" -le "$ATTEMPTS" ]; do
     # A daemon restart (the paseo kit does one when it pins the worktree root) can
     # land mid-install; wait for it to answer again before each attempt.
     until paseo_ready; do
-      [ "$(date +%s)" -ge "$deadline" ] && break
+      [ "$(date +%s)" -ge "$install_deadline" ] && break
       sleep 3
     done
     case "$source" in
@@ -147,8 +168,8 @@ install_plugin() {
       return 0
     fi
     log "$id attempt $n of $ATTEMPTS failed (exit $install_status); see lines above"
+    [ "$n" -lt "$ATTEMPTS" ] && sleep 5
     n=$((n + 1))
-    sleep 5
   done
   log "$id FAILED to install from $target after $ATTEMPTS attempts"
 }
@@ -166,5 +187,12 @@ install_plugin skills npm:@gpambrozio/paseo-skills 0.4.0
 # (https://paseo.sh/plugins/dutchakdev/mermaid). npm tarball sha512 reviewed:
 # vNVNE1b0z7HJ1093jT1Cz/f3QYXFKg6yTfdqTHeFqaa9Ks437b0nrmQRdY/tWC9XDdXvgjWCCS1v9CsYYsCOhg==
 install_plugin mermaid npm:paseo-plugin-mermaid 0.5.0
+
+# Beautiful Chat 0.1.0 by ABorakati, the commit the Paseo registry lists for
+# aborakati/beautiful-chat (https://paseo.sh/plugins/aborakati/beautiful-chat).
+# Its manifest runs `npm ci --include=dev` at install, from a lockfile whose
+# packages all resolve from registry.npmjs.org with integrity hashes. The build runs
+# only from this pinned commit's manifest.
+install_plugin beautiful-chat git:ABorakati/beautiful-chat 42b61d8301b5400a67821bbbfcf99fa8b681dc37
 
 exit 0

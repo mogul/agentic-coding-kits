@@ -237,7 +237,9 @@ for needle in "*[!0-9a-f]*|\"\")" '"${#pin}" -eq 40' '*[!0-9.]*|*..*|.*|*.)' 'RE
 done
 # Only install_plugin may call `paseo plugin install`, and only with the checked $target and --ref "$pin".
 installs="$(grep -nE 'paseo[[:space:]]+plugin[[:space:]]+(install|add)' "$PLUGINS_SH" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
-if [ "$(printf '%s\n' "$installs" | grep -c .)" -ne 2 ] || printf '%s\n' "$installs" | grep -vqE '"\$target"[[:space:]]+>>'; then
+if [ "$(printf '%s\n' "$installs" | grep -c .)" -ne 2 ] \
+  || [ "$(printf '%s\n' "$installs" | grep -cF -- '--ref "$pin" "$target" >>')" -ne 1 ] \
+  || [ "$(printf '%s\n' "$installs" | grep -cF -- '--id "$id" "$target" >>')" -ne 1 ]; then
   bad "paseo plugin install appears outside install_plugin or with an unchecked target"
   printf '%s\n' "$installs" | sed 's/^/  | /' >&2
   plug_bad=1
@@ -260,8 +262,10 @@ while IFS= read -r line; do
   src="${3:-}"; pin="${4:-}"; extra="${5:-}"
   [ -z "$extra" ] || { bad "unexpected extra arguments: $line"; plug_bad=1; continue; }
   case "$src" in
-    git:[A-Za-z0-9_.-]*/[A-Za-z0-9_.-]*) printf '%s' "$pin" | grep -qE '^[0-9a-f]{40}$' || { bad "not pinned to a full commit SHA: $line"; plug_bad=1; } ;;
-    npm:*) printf '%s' "$pin" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { bad "npm source not pinned to an exact version: $line"; plug_bad=1; } ;;
+    git:*) printf '%s' "${src#git:}" | grep -qE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || { bad "git source must be git:owner/repo: $line"; plug_bad=1; }
+       printf '%s' "$pin" | grep -qE '^[0-9a-f]{40}$' || { bad "not pinned to a full commit SHA: $line"; plug_bad=1; } ;;
+    npm:*) printf '%s' "${src#npm:}" | grep -qE '^(@[a-z0-9._-]+/)?[a-z0-9._-]+$' || { bad "npm source must be npm:package with no version or tag: $line"; plug_bad=1; }
+       printf '%s' "$pin" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { bad "npm source not pinned to an exact version: $line"; plug_bad=1; } ;;
     *) bad "source must be git:owner/repo or npm:package: $line"; plug_bad=1 ;;
   esac
 done <<EOF_CALLS

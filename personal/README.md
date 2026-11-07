@@ -59,11 +59,28 @@ Log: `~/.local/state/paseo/paseo-plugins.log`. Check the result with `paseo plug
 Plugins live under the daemon's home, which is not persisted past the sandbox, so
 each new sandbox installs them again.
 
-| Plugin | Source | Pin | Notes |
+| Plugin | Source | Pin (sha512s are recorded for reviewers; nothing checks them at install) | Notes |
 | --- | --- | --- | --- |
 | `quote-notes` ("Codex Style Annotations", 0.2.2) by xzthemeofsss | `git:xzthemeofsss/paseo-plugins` | `5ce92527c99a328b28775c7d745f324f2cc84309` | Client plus a one-line settings registration; no server handlers. Needs Paseo 0.11.4 or later. Disable the older `quote` plugin first if you add it. Some labels are in Chinese. |
-| `skills` ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads `~/.claude`, `~/.codex` and `~/.agents/skills`; writes nothing; no network or subprocess. Shows this kit's 28 skills in the Paseo UI. Needs Paseo 0.9 or later. |
+| `skills` ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads the skill directories under `~/.claude`, `~/.codex` (or `$CODEX_HOME`) and `~/.agents`, and the project-level ones for the agent's working directory; writes nothing; no network or subprocess. Shows this kit's 28 skills in the Paseo UI. Needs Paseo 0.9 or later. |
 | `mermaid` (0.5.0) by dutchakdev | `npm:paseo-plugin-mermaid` | `0.5.0` (sha512 `vNVNE1b0z7HJ1093jT1Cz/f3QYXFKg6yTfdqTHeFqaa9Ks437b0nrmQRdY/tWC9XDdXvgjWCCS1v9CsYYsCOhg==`) | Draws `mermaid` code blocks in chat as diagrams (flowcharts and sequence diagrams itself, other types through Paseo's Markdown on 0.13 or later), and opens `.mmd` files as diagrams. Runs only in the app: no server code, network or subprocess. Needs Paseo 0.11 or later. If you install Better Paseo, turn off its "Plugin markdown for replies" setting. |
+| `beautiful-chat` (0.1.0) by ABorakati | `git:ABorakati/beautiful-chat` | `42b61d8301b5400a67821bbbfcf99fa8b681dc37` | Redraws chat timeline items (tool calls, reasoning, checklists, prompts, errors, replies) as typed, syntax-highlighted cards that follow the Paseo theme, with its own settings page and chat find. The code does not gate on provider, so it applies to every agent; only the OMP-specific parts (job and IRC envelopes) are provider specific. Its manifest runs `npm ci --include=dev` during install, so the daemon needs `npm` on its PATH and `registry.npmjs.org`. Its server spawns `xdg-open` for "reveal path", which does nothing useful in a headless sandbox. **Conflicts with `mermaid` by default, see below.** |
+
+**Mermaid and Beautiful Chat: switch one setting off, once per browser.** Beautiful Chat's
+**Assistant markdown** setting is on by default and takes assistant replies before Mermaid
+sees them, so Mermaid blocks show as plain code. In the Paseo app open
+**Settings, Plugins, Beautiful Chat** and turn **Assistant markdown** off; Paseo then draws
+replies itself and Mermaid draws the diagrams. (Mermaid's own overview calls the
+equivalent setting in a different plugin, Better Paseo, "Plugin markdown for replies";
+Beautiful Chat's is named **Assistant markdown**.)
+
+Beautiful Chat keeps its settings in the browser's `localStorage` under
+`paseo/beautiful-chat/preferences/v1`, not on the daemon, so the kit cannot set this for
+you. `localStorage` belongs to the page origin. It carries across sandboxes only if you
+reach them through the same origin, such as the hosted app at `app.paseo.sh` or the desktop
+app. A daemon-served web UI on a per-sandbox published port is a new origin each time and
+needs the toggle again. On a native mobile client `localStorage` may not exist, in which
+case the choice is not saved and the conflict returns; that is untested.
 
 To add or change one, edit the `install_plugin` lines at the bottom of
 `files/home/paseo-plugins-install.sh`, read the plugin's source, and run
@@ -218,8 +235,10 @@ drops files and starts one plugin installer that needs the separate paseo kit, s
   already allows the npm registry.
 - **Plugins are code, not text.** A listed plugin runs unsandboxed. Review a plugin's
   source at the exact commit before you add or move its pin, and check what it fetches
-  and writes. The installer reaches only `github.com` and `registry.npmjs.org` (and whatever the daemon's own
-  allow-list permits); the egress allow-list is the only network control, and the
+  and writes. Some plugins run commands at install: `beautiful-chat` declares
+  `build: npm ci --include=dev`, which executes with the daemon's privileges and the sandbox's
+  registry access (npm lifecycle scripts of its dependencies included). Read a plugin's `paseo-plugin.json` `build` list as well as its code. The installer reaches only `github.com` and `registry.npmjs.org`
+  (and whatever the daemon's own allow-list permits); the egress allow-list is the only network control, and the
   plugin runs inside it.
 - **Agent-writable.** The files land under `/home/agent`, which the agent owns.
   They are a convenience payload, not a trust anchor.
