@@ -63,6 +63,7 @@ each new sandbox installs them again.
 | --- | --- | --- | --- |
 | `quote-notes` ("Codex Style Annotations", 0.2.2) by xzthemeofsss | `git:xzthemeofsss/paseo-plugins` | `5ce92527c99a328b28775c7d745f324f2cc84309` | Client plus a one-line settings registration; no server handlers. Needs Paseo 0.11.4 or later. Disable the older `quote` plugin first if you add it. Some labels are in Chinese. |
 | `skills` ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads `~/.claude`, `~/.codex` and `~/.agents/skills`; writes nothing; no network or subprocess. Shows this kit's 28 skills in the Paseo UI. Needs Paseo 0.9 or later. |
+| `mermaid` (0.5.0) by dutchakdev | `npm:paseo-plugin-mermaid` | `0.5.0` (sha512 `vNVNE1b0z7HJ1093jT1Cz/f3QYXFKg6yTfdqTHeFqaa9Ks437b0nrmQRdY/tWC9XDdXvgjWCCS1v9CsYYsCOhg==`) | Draws `mermaid` code blocks in chat as diagrams (flowcharts and sequence diagrams itself, other types through Paseo's Markdown on 0.13 or later), and opens `.mmd` files as diagrams. Runs only in the app: no server code, network or subprocess. Needs Paseo 0.11 or later. If you install Better Paseo, turn off its "Plugin markdown for replies" setting. |
 
 To add or change one, edit the `install_plugin` lines at the bottom of
 `files/home/paseo-plugins-install.sh`, read the plugin's source, and run
