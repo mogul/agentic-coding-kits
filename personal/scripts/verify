@@ -228,6 +228,9 @@ rec="$(awk -v p="/home/agent/paseo-plugins-install.sh" '$0 == "  - path: " p {f=
 printf '%s\n' "$spec_commands" | grep -q 'sh /home/agent/paseo-plugins-install.sh' || { bad "no startup command runs paseo-plugins-install.sh"; plug_bad=1; }
 printf '%s\n' "$spec_commands" | grep -qE '^[[:space:]]+background:[[:space:]]+true[[:space:]]*$' || { bad "the plugin startup command is not background: true"; plug_bad=1; }
 printf '%s\n' "$spec_caps" | grep -qE '^[[:space:]]+-[[:space:]]+github\.com[[:space:]]*$' || { bad "caps.network.allow does not list github.com"; plug_bad=1; }
+if grep -qE '^[[:space:]]*install_plugin[[:space:]]+[a-z][a-z0-9-]*[[:space:]]+npm:' "$PLUGINS_SH"; then
+  printf '%s\n' "$spec_caps" | grep -qE '^[[:space:]]+-[[:space:]]+registry\.npmjs\.org[[:space:]]*$' || { bad "an npm-sourced plugin is listed but caps.network.allow lacks registry.npmjs.org"; plug_bad=1; }
+fi
 # The run-time guard must be present.
 for needle in "*[!0-9a-f]*|\"\")" '"${#pin}" -eq 40' '*[!0-9.]*|*..*|.*|*.)' 'REFUSED: source must be git:owner/repo or npm:package'; do
   grep -qF -- "$needle" "$PLUGINS_SH" || { bad "install_plugin guard missing: $needle"; plug_bad=1; }
@@ -264,7 +267,7 @@ while IFS= read -r line; do
 done <<EOF_CALLS
 $calls
 EOF_CALLS
-[ "$plug_bad" -eq 0 ] && ok "installer is mode 0755, wired to a background startup command, github.com allow-listed, guarded at run time, and every plugin is pinned"
+[ "$plug_bad" -eq 0 ] && ok "installer is mode 0755, wired to a background startup command, github.com (and registry.npmjs.org for npm sources) allow-listed, guarded at run time, and every plugin is pinned"
 
 info "4. Helper scripts parse"
 if command -v "$PYTHON_BIN" >/dev/null 2>&1; then

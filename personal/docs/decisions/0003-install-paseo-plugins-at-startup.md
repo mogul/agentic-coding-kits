@@ -44,11 +44,12 @@ plugin directory and config, and `paseo plugin install` needs a running daemon.
    which was not reachable from the development sandbox, so the registry route could
    not be tested.
 
-4. **Egress: `github.com`.** For `git clone` of the pinned sources. `caps.network` is
-   sandbox-wide, so this also lets every other agent in the sandbox reach github.com. The first plugin is
-   a git source. An npm-sourced plugin would need `registry.npmjs.org`, which the paseo
-   kit already allows; it would be added to `caps.network` here too rather than relied
-   on, in the commit that adds such a plugin.
+4. **Egress: `github.com` and `registry.npmjs.org`.** `github.com` is for `git clone` of
+   git-sourced plugins and `registry.npmjs.org` for npm-sourced ones. The paseo kit
+   already allows the npm registry; this kit lists it too rather than rely on another kit.
+   `caps.network` is sandbox-wide, so every other agent in the sandbox also reaches these
+   hosts. `scripts/verify` fails if an npm-sourced plugin is listed without the npm host.
+   The daemon installs npm plugins with `--ignore-scripts` (checked in its source).
 
 5. **Idempotent and skip-if-present.** The script skips a plugin whose id is already
    configured, so a second run, a daemon restart that re-runs startup, or a snapshot that

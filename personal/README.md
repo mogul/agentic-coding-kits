@@ -7,7 +7,7 @@ every sandbox, applied last on top of the global kits.
 It is an opt-in `--kit` mixin. It installs no agent, writes no provider
 configuration, and publishes no ports. It runs one background startup command that
 installs Paseo plugins (see [Paseo plugins](#paseo-plugins)), and allow-lists one
-network host, `github.com`, for that command.
+network hosts, `github.com` and `registry.npmjs.org`, for that command.
 
 ## What it ships
 
@@ -62,6 +62,7 @@ each new sandbox installs them again.
 | Plugin | Source | Pin | Notes |
 | --- | --- | --- | --- |
 | `quote-notes` ("Codex Style Annotations", 0.2.2) by xzthemeofsss | `git:xzthemeofsss/paseo-plugins` | `5ce92527c99a328b28775c7d745f324f2cc84309` | Client plus a one-line settings registration; no server handlers. Needs Paseo 0.11.4 or later. Disable the older `quote` plugin first if you add it. Some labels are in Chinese. |
+| `skills` ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads `~/.claude`, `~/.codex` and `~/.agents/skills`; writes nothing; no network or subprocess. Shows this kit's 28 skills in the Paseo UI. Needs Paseo 0.9 or later. |
 
 To add or change one, edit the `install_plugin` lines at the bottom of
 `files/home/paseo-plugins-install.sh`, read the plugin's source, and run
@@ -210,12 +211,13 @@ drops files and starts one plugin installer that needs the separate paseo kit, s
   run commands and push code. Everything is plain text you can read in this
   directory; review the diff before pinning a new SHA, especially after
   re-vendoring.
-- **`github.com` is open to every agent in the sandbox.** `caps.network` is sandbox-wide,
-  not scoped to the installer, so any agent or plugin there can also reach github.com
-  (clones, gists, pushes). It is the same trust you already give `gh`.
+- **`github.com` and `registry.npmjs.org` are open to every agent in the sandbox.**
+  `caps.network` is sandbox-wide, not scoped to the installer, so any agent or plugin
+  there can also reach them (clones, gists, pushes, package fetches). The paseo kit
+  already allows the npm registry.
 - **Plugins are code, not text.** A listed plugin runs unsandboxed. Review a plugin's
   source at the exact commit before you add or move its pin, and check what it fetches
-  and writes. The installer reaches only `github.com` (and whatever the daemon's own
+  and writes. The installer reaches only `github.com` and `registry.npmjs.org` (and whatever the daemon's own
   allow-list permits); the egress allow-list is the only network control, and the
   plugin runs inside it.
 - **Agent-writable.** The files land under `/home/agent`, which the agent owns.

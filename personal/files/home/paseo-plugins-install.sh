@@ -157,4 +157,9 @@ install_plugin() {
 # xzthemeofsss/quote-notes (https://paseo.sh/plugins/xzthemeofsss/quote-notes).
 install_plugin quote-notes git:xzthemeofsss/paseo-plugins 5ce92527c99a328b28775c7d745f324f2cc84309
 
+# Skills v0.4.0, the version the Paseo registry lists for gpambrozio/skills
+# (https://paseo.sh/plugins/gpambrozio/skills). npm tarball sha512 reviewed:
+# zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==
+install_plugin skills npm:@gpambrozio/paseo-skills 0.4.0
+
 exit 0

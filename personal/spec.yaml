@@ -24,8 +24,8 @@
 # sandbox create. Without the paseo kit it logs that the daemon never came up and
 # installs nothing. See docs/decisions/0003.
 #
-# EGRESS: github.com only, for `git clone` of the pinned plugin sources. The
-# skills themselves need none; the first-mate scripts call the `gh` and `paseo`
+# EGRESS: github.com for `git clone` of git-sourced plugins, registry.npmjs.org for
+# npm-sourced ones. The skills themselves need none; the first-mate scripts call the `gh` and `paseo`
 # CLIs when the agent runs them, and those CLIs' needs belong to other kits.
 #
 # NO `agent:` BLOCK and NO published ports: this is an opt-in --kit mixin.
@@ -41,12 +41,13 @@ description: >
   First Mate skill and a vendored copy of Matt Pocock's engineering skills,
   dropped into ~/.agents/skills, plus a startup step that installs pinned Paseo
   plugins into the Paseo daemon when the paseo kit is also applied. Opt-in
-  mixin; egress to github.com only; no ports.
+  mixin; egress to github.com and registry.npmjs.org only; no ports.
 
 caps:
   network:
     allow:
       - github.com
+      - registry.npmjs.org
 
 files:
   - path: /home/agent/.agents/skills/paseo-first-mate/SKILL.md
