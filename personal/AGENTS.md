@@ -20,5 +20,9 @@ An acq `hybrid/v1` skill kit. Start with [`README.md`](README.md).
 - **Check your work:** `scripts/verify` (offline) and, from the repository root,
   `python scripts/run-kit-tests.py personal`. Both need `python3`; `shellcheck` and `acq`
   are used when installed.
-- The kit has no `commands`, no `caps.network` and no `agent:` block on purpose. Every
-  payload is dropped at its final path; do not add a startup step to link or fetch.
+- The kit has one `commands` entry on purpose: a background startup step that runs
+  `files/home/paseo-plugins-install.sh` (ADR 0003). Skills are dropped at their final path;
+  do not add a step to link or fetch them. It has no `agent:` block, and `caps.network`
+  lists `github.com` only. A new Paseo plugin is one `install_plugin ID git:owner/repo <40-hex>`
+  (or `npm:pkg <x.y.z>`) line in that script; the script refuses unpinned sources and
+  `scripts/verify` section 3d checks it. Read the plugin's source at the pin first.

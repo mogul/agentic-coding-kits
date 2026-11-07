@@ -1,6 +1,6 @@
 # Decision: ship the First Mate skill as a snapshot kit at its final path
 
-**Status:** accepted (2026-10-29); the kit was later renamed `personal` and widened, see [0002](0002-personal-kit-and-vendored-pocock-skills.md)
+**Status:** accepted (2026-10-29); the kit was later renamed `personal` and widened, see [0002](0002-personal-kit-and-vendored-pocock-skills.md). The files-only, no-commands, no-egress shape described below was relaxed by [0003](0003-install-paseo-plugins-at-startup.md)
 
 ## Context
 

@@ -3,9 +3,10 @@
 # verify — host-side offline gate for the personal acq mixin kit.
 #
 # Checks that the spec and the payload under files/ agree, that the skill is
-# well-formed, that the helper scripts parse, and that nothing credential-shaped
-# is shipped. If `acq kit validate` is available, the neutral hybrid/v1 spec is
-# validated too. There is no live sandbox check: the kit only drops files.
+# well-formed, that the helper scripts parse, that the Paseo plugin installer is
+# pinned and wired, and that nothing credential-shaped is shipped. If `acq kit
+# validate` is available, the neutral hybrid/v1 spec is validated too. There is
+# no live sandbox check: a live run would exercise acq and the paseo kit.
 #
 # Usage (from anywhere): path/to/personal/scripts/verify
 
@@ -18,6 +19,7 @@ SKILL_DIR="$KIT_DIR/files/home/.agents/skills/$SKILL_NAME"
 SKILL_MD="$SKILL_DIR/SKILL.md"
 CHECK_PY="$SKILL_DIR/assets/first-mate-check.py"
 WAIT_SH="$SKILL_DIR/assets/first-mate-wait.sh"
+PLUGINS_SH="$KIT_DIR/files/home/paseo-plugins-install.sh"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/personal-verify.XXXXXX")" || { echo "mktemp failed" >&2; exit 1; }
 
@@ -31,7 +33,7 @@ info() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 trap 'rm -rf "$WORK" >/dev/null 2>&1 || true' EXIT INT TERM
 
 info "0. Preconditions"
-for f in "$SPEC" "$SKILL_MD" "$CHECK_PY" "$WAIT_SH"; do
+for f in "$SPEC" "$SKILL_MD" "$CHECK_PY" "$WAIT_SH" "$PLUGINS_SH"; do
   if [ -f "$f" ]; then
     ok "present: ${f#"$KIT_DIR"/}"
   else
@@ -123,7 +125,7 @@ for rel, digest in sorted(locked.items()):
         errors.append("missing: " + rel)
     elif hashlib.sha256(open(path, "rb").read()).hexdigest() != digest:
         errors.append("differs from lock: " + rel)
-own = "files/home/.agents/skills/paseo-first-mate/"
+own = ("files/home/.agents/skills/paseo-first-mate/", "files/home/paseo-plugins-install.sh")
 for item in lock.get("thirdParty", []):
     path = os.path.join(kit, item["licenseFile"])
     if not os.path.isfile(path):
@@ -212,6 +214,65 @@ else
   printf '%s\n' "$leftover" | sed 's/^/  | /' >&2
 fi
 
+info "3d. Paseo plugin installer is wired and pinned"
+# The installer enforces pins at run time (install_plugin refuses anything but a
+# git source with a full 40-hex commit or an npm source with an exact version).
+# This section checks that the guard is still there, that nothing bypasses it, and
+# that every listed call is pinned. See docs/decisions/0003.
+plug_bad=0
+spec_commands="$(awk '/^commands:/ {c=1; next} /^[A-Za-z]/ {c=0} c' "$SPEC" | grep -vE '^[[:space:]]*#')"
+spec_caps="$(awk '/^caps:/ {c=1; next} /^[A-Za-z]/ {c=0} c' "$SPEC" | grep -vE '^[[:space:]]*#')"
+rec="$(awk -v p="/home/agent/paseo-plugins-install.sh" '$0 == "  - path: " p {f=1; next} f && /mode:/ {gsub(/"/,"",$2); print $2; exit}' "$SPEC")"
+[ "$rec" = "0755" ] || { bad "spec record for paseo-plugins-install.sh is missing or not mode 0755 (got '${rec:-<none>}')"; plug_bad=1; }
+[ -x "$PLUGINS_SH" ] || { bad "paseo-plugins-install.sh lost its executable bit"; plug_bad=1; }
+printf '%s\n' "$spec_commands" | grep -q 'sh /home/agent/paseo-plugins-install.sh' || { bad "no startup command runs paseo-plugins-install.sh"; plug_bad=1; }
+printf '%s\n' "$spec_commands" | grep -qE '^[[:space:]]+background:[[:space:]]+true[[:space:]]*$' || { bad "the plugin startup command is not background: true"; plug_bad=1; }
+printf '%s\n' "$spec_caps" | grep -qE '^[[:space:]]+-[[:space:]]+github\.com[[:space:]]*$' || { bad "caps.network.allow does not list github.com"; plug_bad=1; }
+if grep -qE '^[[:space:]]*install_plugin[[:space:]]+[a-z][a-z0-9-]*[[:space:]]+npm:' "$PLUGINS_SH"; then
+  printf '%s\n' "$spec_caps" | grep -qE '^[[:space:]]+-[[:space:]]+registry\.npmjs\.org[[:space:]]*$' || { bad "an npm-sourced plugin is listed but caps.network.allow lacks registry.npmjs.org"; plug_bad=1; }
+fi
+# The run-time guard must be present.
+for needle in "*[!0-9a-f]*|\"\")" '"${#pin}" -eq 40' '*[!0-9.]*|*..*|.*|*.)' 'REFUSED: source must be git:owner/repo or npm:package'; do
+  grep -qF -- "$needle" "$PLUGINS_SH" || { bad "install_plugin guard missing: $needle"; plug_bad=1; }
+done
+# Only install_plugin may call `paseo plugin install`, and only with the checked $target and --ref "$pin".
+installs="$(grep -nE 'paseo[[:space:]]+plugin[[:space:]]+(install|add)' "$PLUGINS_SH" | grep -vE '^[0-9]+:[[:space:]]*#' || true)"
+if [ "$(printf '%s\n' "$installs" | grep -c .)" -ne 2 ] \
+  || [ "$(printf '%s\n' "$installs" | grep -cF -- '--ref "$pin" "$target" >>')" -ne 1 ] \
+  || [ "$(printf '%s\n' "$installs" | grep -cF -- '--id "$id" "$target" >>')" -ne 1 ]; then
+  bad "paseo plugin install appears outside install_plugin or with an unchecked target"
+  printf '%s\n' "$installs" | sed 's/^/  | /' >&2
+  plug_bad=1
+fi
+# Every call must be pinned. Calls are only accepted at the start of a line.
+calls="$(grep -E '^[[:space:]]*install_plugin[[:space:]]' "$PLUGINS_SH" | grep -vE 'install_plugin\(\)' || true)"
+other="$(grep -E 'install_plugin' "$PLUGINS_SH" | grep -vE '^[[:space:]]*(#|install_plugin[[:space:]]|install_plugin\(\))' | grep -vE 'REFUSED|^[[:space:]]*#' || true)"
+if [ -n "$other" ]; then
+  bad "install_plugin is referenced somewhere other than a line-leading call"
+  printf '%s\n' "$other" | sed 's/^/  | /' >&2
+  plug_bad=1
+fi
+if [ -z "$calls" ]; then
+  bad "paseo-plugins-install.sh installs no plugins"; plug_bad=1
+fi
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  # shellcheck disable=SC2086
+  set -- $line
+  src="${3:-}"; pin="${4:-}"; extra="${5:-}"
+  [ -z "$extra" ] || { bad "unexpected extra arguments: $line"; plug_bad=1; continue; }
+  case "$src" in
+    git:*) printf '%s' "${src#git:}" | grep -qE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || { bad "git source must be git:owner/repo: $line"; plug_bad=1; }
+       printf '%s' "$pin" | grep -qE '^[0-9a-f]{40}$' || { bad "not pinned to a full commit SHA: $line"; plug_bad=1; } ;;
+    npm:*) printf '%s' "${src#npm:}" | grep -qE '^(@[a-z0-9._-]+/)?[a-z0-9._-]+$' || { bad "npm source must be npm:package with no version or tag: $line"; plug_bad=1; }
+       printf '%s' "$pin" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { bad "npm source not pinned to an exact version: $line"; plug_bad=1; } ;;
+    *) bad "source must be git:owner/repo or npm:package: $line"; plug_bad=1 ;;
+  esac
+done <<EOF_CALLS
+$calls
+EOF_CALLS
+[ "$plug_bad" -eq 0 ] && ok "installer is mode 0755, wired to a background startup command, github.com (and registry.npmjs.org for npm sources) allow-listed, guarded at run time, and every plugin is pinned"
+
 info "4. Helper scripts parse"
 if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   if "$PYTHON_BIN" -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])' "$CHECK_PY" 2>"$WORK/py.log"; then
@@ -229,8 +290,14 @@ else
   bad "first-mate-wait.sh has a syntax error"
   sed 's/^/  | /' "$WORK/sh.log" >&2
 fi
+if sh -n "$PLUGINS_SH" 2>"$WORK/plugins-sh.log"; then
+  ok "paseo-plugins-install.sh parses as POSIX sh"
+else
+  bad "paseo-plugins-install.sh has a syntax error"
+  sed 's/^/  | /' "$WORK/plugins-sh.log" >&2
+fi
 if command -v shellcheck >/dev/null 2>&1; then
-  if shellcheck --severity=warning "$WAIT_SH" "$0" "$KIT_DIR/scripts/test-wait-lock" >"$WORK/shellcheck.log" 2>&1; then
+  if shellcheck --severity=warning "$WAIT_SH" "$PLUGINS_SH" "$0" "$KIT_DIR/scripts/test-wait-lock" >"$WORK/shellcheck.log" 2>&1; then
     ok "shellcheck --severity=warning passes"
   else
     bad "shellcheck --severity=warning failed"
