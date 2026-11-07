@@ -64,3 +64,31 @@ agent owns it) and starts nothing.
 The kit is applied from a pinned SHA. Push the change, pin the new SHA, and
 create a new sandbox. Editing the files inside a running sandbox changes that
 sandbox only.
+
+## A Paseo plugin is not installed
+
+- **Read the log.**
+
+  ```bash
+  acq exec <sandbox> -- cat /home/agent/.local/state/paseo/paseo-plugins.log
+  acq exec <sandbox> -- paseo plugin ls
+  ```
+
+- **"daemon not reachable ... (is the paseo kit applied?)".** The installer talks to the
+  Paseo daemon that the separate `paseo` kit starts. Apply both kits. If the daemon was
+  slow, run `sh ~/paseo-plugins-install.sh` again; it skips what is already installed.
+- **"could not lock config.json" or "could not set pluginsEnabled".** The paseo kit holds
+  a lock while it writes `config.json`. Run the installer again.
+- **"another installer is running".** A run lock at
+  `~/.local/state/paseo/paseo-plugins.run.lock` is held, or was left by a killed run.
+  If no installer is running, remove that directory and run again. A killed run can
+  likewise leave `~/.paseo/.config-json.lock`, which the paseo kit also waits on.
+- **A `git clone` fails.** The sandbox must allow `github.com`. This kit's `caps.network`
+  lists it; confirm the kit was applied and the egress policy did not drop it. Behind an
+  HTTPS-inspecting proxy, git needs the proxy CA in the system store; that path is untested.
+- **The plugin installed but the UI does not show it.** Reload the browser tab. Client
+  plugins load in the app, not the daemon, and the app checks the plugin's
+  `requirements.paseo` range against its own version.
+- **It is installed but you want a newer version.** Change the pin in
+  `files/home/paseo-plugins-install.sh`, run `scripts/verify`, and recreate the sandbox.
+  Plugins are installed at create time and are not updated in place.

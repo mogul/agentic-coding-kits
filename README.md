@@ -65,7 +65,7 @@ An agent kit is a `hybrid/v1` mixin that:
 | [`antigravity/`](antigravity/) | Agent | Pinned Google agy + private Gemini-to-Chat-Completions bridge | **Experimental** — real ARM64 CLI and isolated Paseo verified against synthetic provider; live gateway and x64 pending |
 | [`opencode-go-provider/`](opencode-go-provider/) | Provider | OpenCode Go (`openai-compatible`) facts and a 19-model neutral catalog | **Preview** — blocked on the acq credential-binding addition |
 | [`pi-coding-agent/`](pi-coding-agent/) | Agent | Pinned pi CLI + `~/.pi/agent/models.json` renderer | **Preview** — live verification pending acq PR 611 |
-| [`personal/`](personal/) | Skill | The author's personal layer, dropped into `~/.agents/skills`: the `paseo-first-mate` skill and 27 vendored skills by [Matt Pocock](https://github.com/mattpocock/skills) (MIT, pinned commit; his code review is installed as `pocock-code-review`). See [`personal/NOTICE`](personal/NOTICE) for credits | Offline-verified; no live sandbox run |
+| [`personal/`](personal/) | Skill + startup step | The author's personal layer, dropped into `~/.agents/skills`: the `paseo-first-mate` skill and 27 vendored skills by [Matt Pocock](https://github.com/mattpocock/skills) (MIT, pinned commit; his code review is installed as `pocock-code-review`). See [`personal/NOTICE`](personal/NOTICE) for credits. Also installs pinned Paseo plugins at startup (one background command, `github.com` egress; needs the paseo kit) | Offline-verified; plugin installer exercised against a real Paseo 0.12.0 daemon; no live `acq` run |
 
 **Preview status.**
 
