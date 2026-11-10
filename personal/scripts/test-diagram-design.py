@@ -114,7 +114,7 @@ class PolicyTests(unittest.TestCase):
             guard.validate(
                 svg.replace("</svg>", "<script data-diagram-controls></script></svg>").encode(), 2, svg_only=True
             )
-        with tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "large.html"
             path.write_bytes(b"x" * (guard.MAX_INPUT + 1))
             with self.assertRaises(ValueError):
