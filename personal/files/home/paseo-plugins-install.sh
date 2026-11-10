@@ -195,4 +195,13 @@ install_plugin mermaid npm:paseo-plugin-mermaid 0.5.0
 # only from this pinned commit's manifest.
 install_plugin beautiful-chat git:ABorakati/beautiful-chat 42b61d8301b5400a67821bbbfcf99fa8b681dc37
 
+# Emoji v0.1.0 by YoseptF, reviewed at the registry pin. Client-only composer
+# autocomplete; no server entry, runtime dependencies, or build commands.
+install_plugin emoji git:YoseptF/paseo-emoji 425e37563234d05a3ceaf15040db221625537db9
+
+# Agent Office v0.2.0 by gyuha, reviewed at the registry pin. Observes agent
+# metadata and renders embedded assets; no file writes, commands, or external
+# service requests. Requires Paseo 0.15.2 or later on the daemon and client.
+install_plugin agent-office git:gyuha/agent-office 47b99a0d8a619a97af2443dede661e3b9b45b1bc
+
 exit 0
