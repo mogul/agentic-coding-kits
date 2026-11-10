@@ -125,7 +125,8 @@ for rel, digest in sorted(locked.items()):
         errors.append("missing: " + rel)
     elif hashlib.sha256(open(path, "rb").read()).hexdigest() != digest:
         errors.append("differs from lock: " + rel)
-own = ("files/home/.agents/skills/paseo-first-mate/", "files/home/paseo-plugins-install.sh")
+own = ("files/home/.agents/skills/paseo-first-mate/", "files/home/paseo-plugins-install.sh",
+       "files/home/.agents/skills/diagram-design/", "files/home/.agents/licenses/diagram-design-LICENSE")
 for item in lock.get("thirdParty", []):
     path = os.path.join(kit, item["licenseFile"])
     if not os.path.isfile(path):
@@ -272,6 +273,14 @@ done <<EOF_CALLS
 $calls
 EOF_CALLS
 [ "$plug_bad" -eq 0 ] && ok "installer is mode 0755, wired to a background startup command, github.com (and registry.npmjs.org for npm sources) allow-listed, guarded at run time, and every plugin is pinned"
+
+info "3e. Diagram Design provenance and offline export guard"
+if "$PYTHON_BIN" "$KIT_DIR/scripts/test-diagram-design.py" >"$WORK/diagram.log" 2>&1; then
+  ok "Diagram Design hashes, offline templates, guarded SVG export and browser denial tests pass"
+else
+  bad "Diagram Design provenance or export guard failed"
+  sed 's/^/  | /' "$WORK/diagram.log" >&2
+fi
 
 info "4. Helper scripts parse"
 if command -v "$PYTHON_BIN" >/dev/null 2>&1; then

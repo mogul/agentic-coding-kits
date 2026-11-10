@@ -19,9 +19,11 @@ network hosts, `github.com` and `registry.npmjs.org`, for that command.
     assets/first-mate-wait.sh    background wait loop around the detector; one loop per
                                  FIRST_MATE_DIR, owned by the starting agent (flock)
   <27 skills from mattpocock/skills>   vendored at a pinned commit, see below
+  diagram-design/              offline editorial diagram guidance and guarded export
 ~/.agents/licenses/                            MIT notices for the third-party material
   mattpocock-skills-LICENSE                    Matt Pocock (the vendored skills)
   humanlayer-skills-LICENSE                    HumanLayer (show-me, adapted in the pr skill)
+  diagram-design-LICENSE                       Cathryn Lavery (Diagram Design)
 ```
 
 `~/.agents/skills` is the cross-agent skills root that the supported agents scan,
@@ -61,10 +63,18 @@ each new sandbox installs them again.
 
 | Plugin | Source | Pin (sha512s are recorded for reviewers; nothing checks them at install) | Notes |
 | --- | --- | --- | --- |
-| `quote-notes` ("Codex Style Annotations", 0.2.2) by xzthemeofsss | `git:xzthemeofsss/paseo-plugins` | `5ce92527c99a328b28775c7d745f324f2cc84309` | Client plus a one-line settings registration; no server handlers. Needs Paseo 0.11.4 or later. Disable the older `quote` plugin first if you add it. Some labels are in Chinese. |
-| `skills` ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads the skill directories under `~/.claude`, `~/.codex` (or `$CODEX_HOME`) and `~/.agents`, and the project-level ones for the agent's working directory; writes nothing; no network or subprocess. Shows this kit's 28 skills in the Paseo UI. Needs Paseo 0.9 or later. |
-| `mermaid` (0.5.0) by dutchakdev | `npm:paseo-plugin-mermaid` | `0.5.0` (sha512 `vNVNE1b0z7HJ1093jT1Cz/f3QYXFKg6yTfdqTHeFqaa9Ks437b0nrmQRdY/tWC9XDdXvgjWCCS1v9CsYYsCOhg==`) | Draws `mermaid` code blocks in chat as diagrams (flowcharts and sequence diagrams itself, other types through Paseo's Markdown on 0.13 or later), and opens `.mmd` files as diagrams. Runs only in the app: no server code, network or subprocess. Needs Paseo 0.11 or later. If you install Better Paseo, turn off its "Plugin markdown for replies" setting. |
-| `beautiful-chat` (0.1.0) by ABorakati | `git:ABorakati/beautiful-chat` | `42b61d8301b5400a67821bbbfcf99fa8b681dc37` | Redraws chat timeline items (tool calls, reasoning, checklists, prompts, errors, replies) as typed, syntax-highlighted cards that follow the Paseo theme, with its own settings page and chat find. The code does not gate on provider, so it applies to every agent; only the OMP-specific parts (job and IRC envelopes) are provider specific. Its manifest runs `npm ci --include=dev` during install, so the daemon needs `npm` on its PATH and `registry.npmjs.org`. Its server spawns `xdg-open` for "reveal path", which does nothing useful in a headless sandbox. **Conflicts with `mermaid` by default, see below.** |
+| [`quote-notes`](https://paseo.sh/plugins/xzthemeofsss/quote-notes) ("Codex Style Annotations", 0.2.2) by xzthemeofsss | `git:xzthemeofsss/paseo-plugins` | `5ce92527c99a328b28775c7d745f324f2cc84309` | Client plus a one-line settings registration; no server handlers. Needs Paseo 0.11.4 or later. Disable the older `quote` plugin first if you add it. Some labels are in Chinese. |
+| [`skills`](https://paseo.sh/plugins/gpambrozio/skills) ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads the skill directories under `~/.claude`, `~/.codex` (or `$CODEX_HOME`) and `~/.agents`, and the project-level ones for the agent's working directory; writes nothing; no network or subprocess. Shows this kit's 29 skills in the Paseo UI. Needs Paseo 0.9 or later. |
+| [`mermaid`](https://paseo.sh/plugins/dutchakdev/mermaid) (0.5.0) by dutchakdev | `npm:paseo-plugin-mermaid` | `0.5.0` (sha512 `vNVNE1b0z7HJ1093jT1Cz/f3QYXFKg6yTfdqTHeFqaa9Ks437b0nrmQRdY/tWC9XDdXvgjWCCS1v9CsYYsCOhg==`) | Draws `mermaid` code blocks in chat as diagrams (flowcharts and sequence diagrams itself, other types through Paseo's Markdown on 0.13 or later), and opens `.mmd` files as diagrams. Runs only in the app: no server code, network or subprocess. Needs Paseo 0.11 or later. If you install Better Paseo, turn off its "Plugin markdown for replies" setting. |
+| [`beautiful-chat`](https://paseo.sh/plugins/aborakati/beautiful-chat) (0.1.0) by ABorakati | `git:ABorakati/beautiful-chat` | `42b61d8301b5400a67821bbbfcf99fa8b681dc37` | Redraws chat timeline items (tool calls, reasoning, checklists, prompts, errors, replies) as typed, syntax-highlighted cards that follow the Paseo theme, with its own settings page and chat find. The code does not gate on provider, so it applies to every agent; only the OMP-specific parts (job and IRC envelopes) are provider specific. Its manifest runs `npm ci --include=dev` during install, so the daemon needs `npm` on its PATH and `registry.npmjs.org`. Its server spawns `xdg-open` for "reveal path", which does nothing useful in a headless sandbox. **Conflicts with `mermaid` by default, see below.** |
+| [`emoji`](https://paseo.sh/plugins/yoseptf/emoji) (0.1.0) by YoseptF | `git:YoseptF/paseo-emoji` | `425e37563234d05a3ceaf15040db221625537db9` | Adds Slack-style `:emoji:` autocomplete to the composer using a bundled dictionary. Client-only; no server entry, runtime dependencies, network requests, or build commands. Uses the composer's DOM on desktop/web and intercepts Enter/Tab to accept a suggestion; native mobile is a no-op. Needs Paseo 0.8.0 or later. |
+| [`agent-office`](https://paseo.sh/plugins/gyuha/agent-office) (0.2.0) by gyuha | `git:gyuha/agent-office` | `47b99a0d8a619a97af2443dede661e3b9b45b1bc` | Shows agents as characters in an office. Observes agent/workspace metadata and lifecycle events; keeps state in memory and uses embedded image assets. Does not start agents, approve permissions, write files, spawn commands, or call external services. Desktop/web animation; basic text fallback on mobile. Needs Paseo 0.15.2 or later on both daemon and client. Failed polling can leave stale status; use Paseo's agent state for authoritative decisions. Does not require Agent Team. |
+
+**Compatibility and verification:** the full list now requires Paseo **0.15.2 or
+later** on both daemon and client for Agent Office. This kit does not upgrade
+either runtime. Emoji and Agent Office were source-reviewed at these exact pins;
+their installation and UI have not yet been live-verified. The earlier four-plugin
+installer run on Paseo 0.12.0 does not establish compatibility for these additions.
 
 **Mermaid and Beautiful Chat: switch one setting off, once per browser.** Beautiful Chat's
 **Assistant markdown** setting is on by default and takes assistant replies before Mermaid
@@ -86,6 +96,39 @@ To add or change one, edit the `install_plugin` lines at the bottom of
 `files/home/paseo-plugins-install.sh`, read the plugin's source, and run
 `scripts/verify`. The reasoning is in
 [`docs/decisions/0003`](docs/decisions/0003-install-paseo-plugins-at-startup.md).
+
+## Diagram Design
+
+[Diagram Design by Cathryn Lavery](https://github.com/cathrynlavery/diagram-design)
+is selectively vendored at `f2496acbde9f45ccb55c24d4f75210c8a1355df8`
+(2.6.153), under MIT. It generates editorial HTML/SVG diagrams and imports draw.io,
+Mermaid, Excalidraw and PlantUML sources. The local adaptations use system fonts,
+manual project-local brand tokens, and no global profiles or remote onboarding.
+Logos, galleries, example files and font binaries are not shipped.
+
+Animation remains available using the reviewed template controller. The human can
+open the generated HTML manually. SVG export is offline and user-requested through
+`scripts/export_diagram.py`; the upstream transformer is internal, not a sanitizer.
+The guarded Python export workflow targets Linux and Python 3.12 or later;
+Windows/macOS automated export is unsupported. PNG export is **off by default** and requires explicit approval for the specific
+input/output in the current session. Only the complete static animation frame is
+supported, not intermediate-frame or full-page capture.
+
+The PNG guard requires Linux Bubblewrap and a separately provisioned runtime outside
+the project containing `bin/python` (with Playwright) and `chromium/chrome`.
+It mounts only the snapshot/runtime/temporary output plus read-only system runtime
+libraries, isolates network and process namespaces, clears the environment, and
+limits time/output/pixel area. It never installs packages or falls back to an
+unrestricted renderer. Browser export remains **BLOCKED** here: Chromium/Playwright
+are not provisioned, so no successful live PNG capture is claimed. A hard release
+gate additionally refuses browser execution until live capture and aggregate
+resource/isolation tests pass; approval/provisioning alone do not enable it.
+
+Maintainers edit `vendor/diagram-design-local/` and regenerate with
+`python3 personal/scripts/vendor-diagram-design`; do not edit generated skill files.
+`vendor/diagram-design.json` records provenance and hashes. See
+[vendoring details](docs/vendored-skills.md#diagram-design) and
+[decision 0004](docs/decisions/0004-vendor-offline-diagram-design.md).
 
 ## Matt Pocock's skills
 
@@ -145,10 +188,12 @@ number of `code-review` references in any file differs from what it expects.
 - **Dex Horthy, HumanLayer**: the `pr` skill's menu of visuals is adapted from
   HumanLayer's `show-me` skill, as that skill's own `CREDITS.md` says. MIT, Copyright (c)
   2026 HumanLayer.
+- **Cathryn Lavery**: Diagram Design, MIT, Copyright (c) 2025 Cathryn Lavery.
+  The separate lock and local adaptations are described above.
 - **Mine**: `paseo-first-mate` and the scripts in this directory, written with AI
   assistance (OpenCode, claude-sonnet-5.5). MIT, this repository.
 
-Both third-party licences are shipped into the sandbox at `~/.agents/licenses/`, and
+All three third-party licences are shipped into the sandbox at `~/.agents/licenses/`, and
 [`NOTICE`](NOTICE) has the full provenance. [`docs/vendored-skills.md`](docs/vendored-skills.md)
 is for anyone maintaining the copies: the rule against hand-editing, the table of local
 differences, and how to update. [`AGENTS.md`](AGENTS.md) is the short version for agents.
