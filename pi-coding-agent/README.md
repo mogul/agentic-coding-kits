@@ -63,6 +63,8 @@ opt-in `--kit` mixin, not an acq-built-in agent.
 | `models[].maxOutputTokens` | output tokens | `models[].maxTokens` |
 | `models[].cost.{input,output,cacheRead,cacheWrite}` | USD/1M | same four fields; missing fields become `0` because pi's `ModelCost` requires all four |
 | `models[].costAbove200kContext` | USD/1M above 200k | `models[].cost.tiers = [{ inputTokensAbove: 200000, … }]` |
+| `models[].inputModalities` | `text`, `image`, `audio`, `video`, `pdf` | `models[].input`, limited to `text` and `image` (in that order); other modalities are validated and dropped. A list with neither is omitted, so pi uses its text-only default |
+| `models[].reasoning` | boolean capability flag | validated, **not emitted**: `reasoning: true` makes pi send thinking parameters, and the neutral flag only says the gateway supports reasoning, not that pi's request shape is accepted |
 
 The neutral field is named for context-window pricing and pi's tier is keyed to
 total request input; both are long-input thresholds at 200,000 tokens, and pi's

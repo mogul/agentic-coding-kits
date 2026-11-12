@@ -37,7 +37,8 @@ A provider kit is a self-contained `hybrid/v1` mixin with three layers:
    the facts, the host-side normalizer, the vendored snapshot, and the
    host-materialized provider path, plus the declared credential variable names.
 3. **Neutral model catalog** (`acq-neutral-model-catalog/v1`) — model ids,
-   display names, context windows, output limits, and per-million-token costs.
+   display names, context windows, output limits, per-million-token costs, and
+   optional capability hints (`reasoning`, `inputModalities`).
    Metadata only: no routing or credential fields.
 
 A provider kit also ships a `spec.yaml` (network allow-list and any guest file
