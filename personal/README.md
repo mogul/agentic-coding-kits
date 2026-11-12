@@ -72,8 +72,19 @@ each new sandbox installs them again.
 
 **Compatibility and verification:** the full list now requires Paseo **0.15.2 or
 later** on both daemon and client for Agent Office. This kit does not upgrade
-either runtime. Emoji and Agent Office were source-reviewed at these exact pins;
-their installation and UI have not yet been live-verified. The earlier four-plugin
+either runtime. Emoji and Agent Office were source-reviewed at these exact pins.
+Live results from a real sandbox:
+
+- On Paseo **0.15.0** (what the paseo kit installed at the time), `quote-notes`,
+  `skills`, `mermaid`, `beautiful-chat` and `emoji` all installed and reported
+  `running`. `agent-office` was refused by the daemon with
+  `requires Paseo >=0.15.2. Your daemon is 0.15.0` and installed nothing; the other
+  five were unaffected.
+- After upgrading the CLI to 0.15.4 and re-running `~/paseo-plugins-install.sh`,
+  `agent-office` installed.
+
+See [Agent Office needs a newer Paseo](TROUBLESHOOTING.md#agent-office-needs-a-newer-paseo).
+Emoji and Agent Office UI behavior is still not verified. The earlier four-plugin
 installer run on Paseo 0.12.0 does not establish compatibility for these additions.
 
 **Mermaid and Beautiful Chat: switch one setting off, once per browser.** Beautiful Chat's

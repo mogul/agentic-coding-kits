@@ -37,7 +37,8 @@ A provider kit is a self-contained `hybrid/v1` mixin with three layers:
    the facts, the host-side normalizer, the vendored snapshot, and the
    host-materialized provider path, plus the declared credential variable names.
 3. **Neutral model catalog** (`acq-neutral-model-catalog/v1`) — model ids,
-   display names, context windows, output limits, and per-million-token costs.
+   display names, context windows, output limits, per-million-token costs, and
+   optional capability hints (`reasoning`, `inputModalities`).
    Metadata only: no routing or credential fields.
 
 A provider kit also ships a `spec.yaml` (network allow-list and any guest file
@@ -65,7 +66,7 @@ An agent kit is a `hybrid/v1` mixin that:
 | [`antigravity/`](antigravity/) | Agent | Pinned Google agy + private Gemini-to-Chat-Completions bridge | **Experimental** — real ARM64 CLI and isolated Paseo verified against synthetic provider; live gateway and x64 pending |
 | [`opencode-go-provider/`](opencode-go-provider/) | Provider | OpenCode Go (`openai-compatible`) facts and a 19-model neutral catalog | **Preview** — blocked on the acq credential-binding addition |
 | [`pi-coding-agent/`](pi-coding-agent/) | Agent | Pinned pi CLI + `~/.pi/agent/models.json` renderer | **Preview** — live verification pending acq PR 611 |
-| [`personal/`](personal/) | Skill + startup step | The author's personal layer: `paseo-first-mate`, 27 pinned skills by [Matt Pocock](https://github.com/mattpocock/skills), and adapted offline [Diagram Design](personal/README.md#diagram-design). See [`personal/NOTICE`](personal/NOTICE) for credits. Installs six [pinned Paseo plugins](personal/README.md#paseo-plugins), including Emoji and Agent Office (one background command; `github.com` and `registry.npmjs.org` egress; needs the paseo kit; full list requires daemon/client 0.15.2+) | Offline-verified; earlier four-plugin installer live-tested on 0.12.0; Emoji/Agent Office not live-verified; Diagram Design browser export blocked pending provisioned runtime; no live `acq` run |
+| [`personal/`](personal/) | Skill + startup step | The author's personal layer: `paseo-first-mate`, 27 pinned skills by [Matt Pocock](https://github.com/mattpocock/skills), and adapted offline [Diagram Design](personal/README.md#diagram-design). See [`personal/NOTICE`](personal/NOTICE) for credits. Installs six [pinned Paseo plugins](personal/README.md#paseo-plugins), including Emoji and Agent Office (one background command; `github.com` and `registry.npmjs.org` egress; needs the paseo kit; full list requires daemon/client 0.15.2+) | Offline-verified; live-run in an `acq` sandbox: five of six plugins install on Paseo 0.15.0, Agent Office needs 0.15.2+ (installed after upgrading to 0.15.4); Emoji/Agent Office UI not verified; Diagram Design browser export blocked pending provisioned runtime |
 
 **Preview status.**
 

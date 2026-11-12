@@ -13,6 +13,33 @@
   full SHA, and `&dir=personal` is present.
 - **Start a new session.** Agents usually discover skills at startup.
 
+## Agent Office needs a newer Paseo
+
+**Symptom:** `paseo plugin ls` shows five plugins but not `agent-office`, and
+`~/.local/state/paseo/paseo-plugins.log` ends with:
+
+```text
+Error: Request failed: Plugin "agent-office" requires Paseo >=0.15.2. Your daemon is 0.15.0. ...
+paseo-plugins: agent-office FAILED to install from git:gyuha/agent-office after 3 attempts
+```
+
+**Cause:** the daemon is older than the plugin allows. This kit never upgrades
+Paseo; the paseo kit's pinned CLI version decides what the sandbox gets. The other
+plugins are unaffected, and the installer still exits 0.
+
+**Fix, in the running sandbox** (the paseo kit may put its own pin back on the next
+sandbox start, so also raise the pin there):
+
+```bash
+npm install -g --prefix "$HOME/.npm-global" --cache "$HOME/.npm" --ignore-scripts @getpaseo/cli@0.15.4
+paseo --version        # 0.15.2 or later
+paseo daemon restart
+sh ~/paseo-plugins-install.sh
+paseo plugin ls | grep agent-office
+```
+
+The client (desktop or web app) must also be 0.15.2 or later.
+
 ## `first-mate-wait.sh: Permission denied`
 
 The scripts are declared `0755`. On sbx, every `files/` payload is first

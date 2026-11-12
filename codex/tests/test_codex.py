@@ -83,6 +83,35 @@ class KitTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 provider.load("CODEX", {"ACQ_PROVIDER_INPUT_ROOT": str(root)})
 
+    def test_provider_accepts_optional_capability_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "models/providers/test"
+            path.mkdir(parents=True)
+            facts = {
+                "schemaVersion": "acq-provider-facts/v1",
+                "providerId": "test",
+                "apiProtocol": "openai-compatible",
+                "host": "example.invalid",
+                "baseUrl": "https://example.invalid/v1",
+                "keyEnv": "TEST_MODEL_KEY",
+            }
+            snapshot = {
+                "schemaVersion": "acq-neutral-model-catalog/v1",
+                "providerId": "test",
+                "models": [
+                    {"id": "a", "inputModalities": ["text", "image"], "reasoning": True},
+                    {"id": "b", "inputModalities": ["text", "audio", "pdf"], "reasoning": False},
+                ],
+                "recommendations": {"primary": "a"},
+            }
+            (path / "facts.json").write_text(json.dumps(facts))
+            (path / "snapshot.json").write_text(json.dumps(snapshot))
+            env = {"ACQ_PROVIDER_INPUT_ROOT": str(root), "TEST_MODEL_KEY": "test-only"}
+            result = provider.load("CODEX", env)
+            self.assertEqual([m["id"] for m in result[1]], ["a", "b"])
+            self.assertEqual(result[2], "a")
+
     def test_argument_boundary_and_routing(self):
         launch.check_args(["exec", "--", "--config=secret", "--model", "unknown"], ["exact"])
         for args in [

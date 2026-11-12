@@ -19,6 +19,9 @@
 //   models[].contextWindow    -> models[].contextWindow
 //   models[].maxOutputTokens  -> models[].maxTokens
 //   models[].cost             -> models[].cost (all four fields required by pi)
+//   models[].reasoning        -> validated (boolean), NOT emitted: pi would start sending
+//                               thinking parameters the gateway is not verified to accept
+//   models[].inputModalities  -> models[].input (text/image only; others dropped)
 //
 // A missing provider root is NOT an empty provider set: it means the acq
 // generation is not ready yet, so the existing models.json is left untouched.
@@ -60,7 +63,11 @@ const API_PROTOCOLS = Object.freeze(Object.assign(Object.create(null), {
 export const COST_FIELDS = Object.freeze(["input", "output", "cacheRead", "cacheWrite"])
 export const FACTS_FIELDS = new Set(["schemaVersion", "providerId", "apiProtocol", "host", "baseUrl", "modelsUrl", "keyEnv"])
 export const CATALOG_FIELDS = new Set(["schemaVersion", "providerId", "models", "recommendations"])
-export const MODEL_FIELDS = new Set(["id", "name", "contextWindow", "maxOutputTokens", "cost", "costAbove200kContext"])
+export const MODEL_FIELDS = new Set(["id", "name", "contextWindow", "maxOutputTokens", "cost", "costAbove200kContext", "reasoning", "inputModalities"])
+// Closed neutral modality allowlist (mirrors the vendored catalog schema), and
+// the subset pi's models.json can express. The rest are validated, then dropped.
+export const NEUTRAL_MODALITIES = new Set(["text", "image", "audio", "video", "pdf"])
+const PI_INPUT_MODALITIES = ["text", "image"]
 const COST_FIELD_SET = new Set(COST_FIELDS)
 const RECOMMENDATION_ROLES = new Set(["primary", "small", "compaction", "summary", "title"])
 
@@ -121,6 +128,21 @@ function httpsUrl(value, label) {
   return url
 }
 
+function piInputFor(value, label) {
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`${label} must be a non-empty array`)
+  const seen = new Set()
+  for (const modality of value) {
+    if (typeof modality !== "string" || !NEUTRAL_MODALITIES.has(modality)) {
+      throw new Error(`${label} contains an unsupported modality`)
+    }
+    if (seen.has(modality)) throw new Error(`${label} contains a duplicate modality`)
+    seen.add(modality)
+  }
+  // Absent means unknown, and pi defaults it to text-only, so emit only what pi
+  // can express; a list with nothing pi understands is left to pi's default.
+  return PI_INPUT_MODALITIES.filter((modality) => seen.has(modality))
+}
+
 function cost(value, label) {
   const source = object(value, label)
   rejectUnknownFields(source, COST_FIELD_SET, label)
@@ -149,6 +171,14 @@ function renderModel(model, providerId) {
   }
   if (source.maxOutputTokens !== undefined) {
     rendered.maxTokens = positiveInteger(source.maxOutputTokens, `output limit for '${reference}'`)
+  }
+  // reasoning is validated but deliberately not rendered: see the header comment and ADR 0002.
+  if (source.reasoning !== undefined && typeof source.reasoning !== "boolean") {
+    throw new Error(`reasoning for '${reference}' must be a boolean`)
+  }
+  if (source.inputModalities !== undefined) {
+    const input = piInputFor(source.inputModalities, `input modalities for '${reference}'`)
+    if (input.length > 0) rendered.input = input
   }
   if (source.cost !== undefined) rendered.cost = cost(source.cost, `cost for '${reference}'`)
   if (source.costAbove200kContext !== undefined) {
