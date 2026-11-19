@@ -156,10 +156,11 @@ check "report is printed" "CHANGED stub" "$out"
 check "lock released on exit" "none" "$(as alice status)"
 rm -f "$FIRST_MATE_DIR/change"
 
-echo "the cap exits 3 and prints nothing"
+echo "the cap exits 3 and says so in one line"
 out="$(as alice 1 0 2>&1)"; rc=$?
 check "exit 3 at the cap" "3" "$rc"
-check "nothing printed" "" "$out"
+check "one line printed" "1" "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+case "$out" in *"ended at its 0-minute cap"*) check "the line names the cap" "yes" "yes" ;; *) check "the line names the cap" "yes" "$out" ;; esac
 
 printf '\n  %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
