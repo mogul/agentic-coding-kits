@@ -13,8 +13,10 @@ network hosts, `github.com` and `registry.npmjs.org`, for that command.
 
 ```text
 ~/.agents/skills/
-  paseo-first-mate/            the author's own skill (version 1.4.0) and two helper scripts
+  paseo-first-mate/            the author's own skill (version 1.5.0), its references, and two helper scripts
     SKILL.md
+    references/*.md              longer procedures the skill links to (delegation, status doc,
+                                 handoff, host commands, stacking, cross-PR checks)
     assets/first-mate-check.py   change detector (prints nothing when nothing changed)
     assets/first-mate-wait.sh    background wait loop around the detector; one loop per
                                  FIRST_MATE_DIR, owned by the starting agent (flock)
@@ -242,7 +244,8 @@ running and who owns it. A missing tool is reported rather than hidden: the
 detector prints an `ERROR` line naming the missing CLI, and the shell reports a
 missing `python3`. The detector only reads GitHub and Paseo state; its only
 writes are the state and watch files, and the directory that holds them,
-`FIRST_MATE_DIR` (default `./tmp`, relative to the current directory).
+`FIRST_MATE_DIR` (default `tmp`, resolved to an absolute path; running from inside
+`tmp/` does not nest it).
 
 ## Updating the First Mate skill
 
