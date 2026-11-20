@@ -530,7 +530,7 @@ record the choices and any later change in the handoff:
   say one line about what you restarted. If it has a WARNING line (the last
   detector run is stale), run `--show` to see the error, then `stop` and start the
   loop again, and say one line. If it starts with `other`, say so once and do
-  nothing else. Make no other tool calls.
+  nothing else. Make no tool calls beyond those named.
   ```
 
   Use `paseo heartbeat update <id> --cron ...` to change its cadence.
