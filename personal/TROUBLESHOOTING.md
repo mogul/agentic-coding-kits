@@ -61,14 +61,16 @@ shell's "command not found" as its output.
 ## The detector prints nothing and the wait loop never returns
 
 That is the intended quiet path: once a baseline exists, it prints nothing when
-nothing changed, and the wait loop exits 3 at its cap. The very first run prints
-`BASELINE saved` (even with an empty watch list, because agents and permission
-prompts are always collected), so the wait loop returns once at first start;
-start it again after that (check `status` first). If `paseo` is missing the baseline never settles (see the
-previous section), so the loop returns every time. Run the script with `--show`
+nothing changed, and the wait loop exits 3 at its cap (default 8 hours), printing one
+line that says so. The very first run prints
+`BASELINE saved`, so the wait loop returns once at first start; start it again
+after that (check `status` first). If `gh` is missing, or `paseo` is missing while
+`agents on` or `permits on` is set, the baseline never settles (see the previous
+section), so the loop returns every time. Run the script with `--show`
 to see the full current snapshot, and `list` to see what is being watched. State
-and watch files live in `FIRST_MATE_DIR` (default `./tmp`), relative to where
-you run the script.
+and watch files live in `FIRST_MATE_DIR` (default `tmp`), which the scripts resolve to
+an absolute path. `first-mate-wait.sh status` also shows `last-run=`, the age of the
+last completed detector run, and warns when it is over twice the interval.
 
 ## Several wait loops, or "refusing: a loop is running"
 

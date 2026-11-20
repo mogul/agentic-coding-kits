@@ -330,6 +330,20 @@ else
   skip "flock not installed (wait-loop locking test not run)"
 fi
 
+info "4c. Detector behaviour (fake gh and paseo, offline)"
+# Two-phase save, own-login filter, merge-state collapse, auto-prune, status age, cap
+# message, and the stray tmp/tmp case. gh and paseo are fake executables on PATH.
+if command -v "$PYTHON_BIN" >/dev/null 2>&1 && command -v flock >/dev/null 2>&1; then
+  if "$PYTHON_BIN" "$KIT_DIR/scripts/test-first-mate-detector.py" >"$WORK/detector.log" 2>&1; then
+    ok "first-mate-check.py and first-mate-wait.sh behaviour tests pass ($(grep -c ' ok$' "$WORK/detector.log") tests)"
+  else
+    bad "first-mate detector behaviour tests failed"
+    sed 's/^/  | /' "$WORK/detector.log" >&2
+  fi
+else
+  skip "$PYTHON_BIN or flock not installed (detector behaviour test not run)"
+fi
+
 info "5. Shipped detector has no baked-in watch targets"
 # `list` prints the watch list without calling GitHub or Paseo. It must come
 # back with no PRs, issues, or releases, so nothing is hard-coded to a repo.

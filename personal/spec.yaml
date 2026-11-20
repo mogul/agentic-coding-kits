@@ -54,10 +54,34 @@ files:
     mode: "0644"
     source: files/home/.agents/skills/paseo-first-mate/SKILL.md
     description: The paseo-first-mate skill instructions
+  - path: /home/agent/.agents/skills/paseo-first-mate/references/cross-pr-checklist.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/references/cross-pr-checklist.md
+    description: Periodic cross-PR checks for the coordinator
+  - path: /home/agent/.agents/skills/paseo-first-mate/references/delegation-prompt.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/references/delegation-prompt.md
+    description: Rules and template for delegation prompts
+  - path: /home/agent/.agents/skills/paseo-first-mate/references/handoff-and-successor.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/references/handoff-and-successor.md
+    description: Handing the effort to a new coordinator
+  - path: /home/agent/.agents/skills/paseo-first-mate/references/host-commands.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/references/host-commands.md
+    description: Credential limits, host commands, evidence, and verification tiers
+  - path: /home/agent/.agents/skills/paseo-first-mate/references/stacking.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/references/stacking.md
+    description: Stacking reviewed PRs with gh-stack
+  - path: /home/agent/.agents/skills/paseo-first-mate/references/status-doc.md
+    mode: "0644"
+    source: files/home/.agents/skills/paseo-first-mate/references/status-doc.md
+    description: The maintained status doc and reporting rules
   - path: /home/agent/.agents/skills/paseo-first-mate/assets/first-mate-check.py
     mode: "0755"
     source: files/home/.agents/skills/paseo-first-mate/assets/first-mate-check.py
-    description: Change detector for watched PRs, issues, releases, agents, and permissions
+    description: Change detector for watched PRs, issues, releases, branches, and workflows (two-phase save)
   - path: /home/agent/.agents/skills/paseo-first-mate/assets/first-mate-wait.sh
     mode: "0755"
     source: files/home/.agents/skills/paseo-first-mate/assets/first-mate-wait.sh
