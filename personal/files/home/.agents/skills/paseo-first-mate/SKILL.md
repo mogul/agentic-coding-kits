@@ -100,11 +100,14 @@ authorization.
 
 ## Loop Rule (Read First)
 
-The wait loop exits on purpose when it finds a change, and it stops silently at
-its cap. A missed restart once left five reviews unseen for three hours. So:
+The wait loop exits on purpose when it finds a change, and it ends at its cap
+with a one-line notice (exit 3). A missed restart once left five reviews unseen
+for three hours. So, as the confirmed coordinator (section 1):
 
 1. **The first command of every turn is `first-mate-wait.sh status`.** If it
-   says `none`, restart the loop in that same turn, before anything else.
+   says `none`, restart the loop in that same turn, before anything else. A
+   non-coordinator (a fork, or a resumed session the user has not confirmed) runs
+   `status` read-only and starts nothing.
 2. **Always run the hourly heartbeat backstop** (section 8). It is part of the
    default procedure, not an alternative.
 3. Report a loop as running only from a `status` result obtained this turn.
@@ -520,18 +523,17 @@ record the choices and any later change in the handoff:
   delete it when coordination ends. Its prompt, with the path filled in:
 
   ```text
-  Run `<absolute path>/first-mate-wait.sh status`. If it starts with `mine`,
-  end the turn silently. If it starts with `none`, start the loop again as a
-  background command (`<absolute path>/first-mate-wait.sh <interval> <cap>`),
-  run `<absolute path>/first-mate-check.py --show` once, and say one line about
-  what you restarted. If it starts with `other`, say so once and do nothing else.
-  Make no other tool calls.
+  Run `<absolute path>/first-mate-wait.sh status`. If it starts with `mine` and
+  has no WARNING line, end the turn silently. If it starts with `none`, start the
+  loop again as a background command (`<absolute path>/first-mate-wait.sh
+  <interval> <cap>`), run `<absolute path>/first-mate-check.py --show` once, and
+  say one line about what you restarted. If it has a WARNING line (the last
+  detector run is stale), run `--show` to see the error, then `stop` and start the
+  loop again, and say one line. If it starts with `other`, say so once and do
+  nothing else. Make no other tool calls.
   ```
 
-  A heartbeat is also the better primary mechanism when the user forks or resumes
-  sessions often: it is one named schedule that no fork can duplicate, at the price
-  of a model call per run. Use `paseo heartbeat update <id> --cron ...` to change
-  its cadence.
+  Use `paseo heartbeat update <id> --cron ...` to change its cadence.
 
 In both cases a quiet wake-up must not turn into filler. Empty calls (`true`,
 `date > /dev/null`) cost tokens, change nothing, and can run away into hundreds
