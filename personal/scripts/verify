@@ -133,7 +133,8 @@ for rel, digest in sorted(locked.items()):
     elif hashlib.sha256(open(path, "rb").read()).hexdigest() != digest:
         errors.append("differs from lock: " + rel)
 own = ("files/home/.agents/skills/paseo-first-mate/", "files/home/paseo-plugins-install.sh",
-       "files/home/.agents/skills/diagram-design/", "files/home/.agents/licenses/diagram-design-LICENSE")
+       "files/home/.agents/skills/diagram-design/", "files/home/.agents/licenses/diagram-design-LICENSE",
+       "files/home/.agents/skills/show-me/")
 for item in lock.get("thirdParty", []):
     path = os.path.join(kit, item["licenseFile"])
     if not os.path.isfile(path):
@@ -157,6 +158,65 @@ PY
   else
     bad "vendored files and vendor/mattpocock-skills.json disagree"
     sed 's/^/  | /' "$WORK/vendor.log" >&2
+  fi
+else
+  skip "$PYTHON_BIN not installed"
+fi
+
+info "3b1. Vendored HumanLayer show-me matches its lock file"
+# show-me is a separately pinned third-party snapshot. Its lock covers the complete
+# shipped set, source commit, and the MIT licence so a local edit or added payload
+# file cannot silently become part of the kit.
+HUMANLAYER_LOCK="$KIT_DIR/vendor/humanlayer-show-me.json"
+if [ ! -f "$HUMANLAYER_LOCK" ]; then
+  bad "vendor/humanlayer-show-me.json missing"
+elif command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  if "$PYTHON_BIN" - "$KIT_DIR" "$HUMANLAYER_LOCK" >"$WORK/humanlayer.log" 2>&1 <<'PY'
+import hashlib, json, os, re, sys
+
+kit, lock_path = sys.argv[1], sys.argv[2]
+lock = json.load(open(lock_path, encoding="utf-8"))
+errors = []
+if not re.fullmatch(r"[0-9a-f]{40}", lock.get("ref", "")):
+    errors.append("lock ref is not a full commit SHA")
+expected_path = "plugins/show-me/skills/show-me"
+if lock.get("skillPath") != expected_path:
+    errors.append("unexpected source skill path: " + repr(lock.get("skillPath")))
+files = lock.get("files")
+if not isinstance(files, dict) or not files:
+    errors.append("lock has no files")
+    files = {}
+for rel, digest in sorted(files.items()):
+    path = os.path.join(kit, rel)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        errors.append("invalid hash: " + rel)
+    elif not os.path.isfile(path):
+        errors.append("missing: " + rel)
+    elif hashlib.sha256(open(path, "rb").read()).hexdigest() != digest:
+        errors.append("differs from lock: " + rel)
+root = os.path.join(kit, "files/home/.agents/skills/show-me")
+on_disk = set()
+for current, _, names in os.walk(root):
+    for name in names:
+        on_disk.add(os.path.relpath(os.path.join(current, name), kit).replace(os.sep, "/"))
+for rel in sorted(on_disk - set(files)):
+    errors.append("not in lock: " + rel)
+license_path = lock.get("attribution", {}).get("licenseFile")
+license_hash = lock.get("licenseSha256", "")
+if not isinstance(license_path, str) or not os.path.isfile(os.path.join(kit, license_path)):
+    errors.append("missing third-party licence")
+elif not re.fullmatch(r"[0-9a-f]{64}", license_hash):
+    errors.append("invalid licence hash")
+elif hashlib.sha256(open(os.path.join(kit, license_path), "rb").read()).hexdigest() != license_hash:
+    errors.append("third-party licence differs from lock")
+print("\n".join(errors))
+sys.exit(1 if errors else 0)
+PY
+  then
+    ok "every HumanLayer show-me file and its licence match vendor/humanlayer-show-me.json"
+  else
+    bad "HumanLayer show-me and vendor/humanlayer-show-me.json disagree"
+    sed 's/^/  | /' "$WORK/humanlayer.log" >&2
   fi
 else
   skip "$PYTHON_BIN not installed"

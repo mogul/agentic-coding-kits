@@ -21,10 +21,11 @@ network hosts, `github.com` and `registry.npmjs.org`, for that command.
     assets/first-mate-wait.sh    background wait loop around the detector; one loop per
                                  FIRST_MATE_DIR, owned by the starting agent (flock)
   <27 skills from mattpocock/skills>   vendored at a pinned commit, see below
+  show-me/                             HumanLayer visual communication skill, pinned and vendored
   diagram-design/              offline editorial diagram guidance and guarded export
 ~/.agents/licenses/                            MIT notices for the third-party material
   mattpocock-skills-LICENSE                    Matt Pocock (the vendored skills)
-  humanlayer-skills-LICENSE                    HumanLayer (show-me, adapted in the pr skill)
+  humanlayer-skills-LICENSE                    HumanLayer (show-me and adapted pr content)
   diagram-design-LICENSE                       Cathryn Lavery (Diagram Design)
 ```
 
@@ -66,7 +67,7 @@ each new sandbox installs them again.
 | Plugin | Source | Pin (sha512s are recorded for reviewers; nothing checks them at install) | Notes |
 | --- | --- | --- | --- |
 | [`quote-notes`](https://paseo.sh/plugins/xzthemeofsss/quote-notes) ("Codex Style Annotations", 0.2.2) by xzthemeofsss | `git:xzthemeofsss/paseo-plugins` | `5ce92527c99a328b28775c7d745f324f2cc84309` | Client plus a one-line settings registration; no server handlers. Needs Paseo 0.11.4 or later. Disable the older `quote` plugin first if you add it. Some labels are in Chinese. |
-| [`skills`](https://paseo.sh/plugins/gpambrozio/skills) ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads the skill directories under `~/.claude`, `~/.codex` (or `$CODEX_HOME`) and `~/.agents`, and the project-level ones for the agent's working directory; writes nothing; no network or subprocess. Shows this kit's 29 skills in the Paseo UI. Needs Paseo 0.9 or later. |
+| [`skills`](https://paseo.sh/plugins/gpambrozio/skills) ("Skills", 0.4.0) by gpambrozio | `npm:@gpambrozio/paseo-skills` | `0.4.0` (sha512 `zMgP2U/vrRsLkKhoQICkN52+YoDy2WkkYymEDmruduKxf4Dq99Ct8Pk3xqJyAzijq2oprMFYLbj/wT6XepBLeA==`) | Lists the skills each agent session can use, renders each `SKILL.md`, and can invoke one. Reads the skill directories under `~/.claude`, `~/.codex` (or `$CODEX_HOME`) and the project-level ones for the agent's working directory; writes nothing; no network or subprocess. Shows this kit's 30 skills in the Paseo UI. Needs Paseo 0.9 or later. |
 | [`mermaid`](https://paseo.sh/plugins/dutchakdev/mermaid) (0.5.0) by dutchakdev | `npm:paseo-plugin-mermaid` | `0.5.0` (sha512 `vNVNE1b0z7HJ1093jT1Cz/f3QYXFKg6yTfdqTHeFqaa9Ks437b0nrmQRdY/tWC9XDdXvgjWCCS1v9CsYYsCOhg==`) | Draws `mermaid` code blocks in chat as diagrams (flowcharts and sequence diagrams itself, other types through Paseo's Markdown on 0.13 or later), and opens `.mmd` files as diagrams. Runs only in the app: no server code, network or subprocess. Needs Paseo 0.11 or later. If you install Better Paseo, turn off its "Plugin markdown for replies" setting. |
 | [`beautiful-chat`](https://paseo.sh/plugins/aborakati/beautiful-chat) (0.1.0) by ABorakati | `git:ABorakati/beautiful-chat` | `42b61d8301b5400a67821bbbfcf99fa8b681dc37` | Redraws chat timeline items (tool calls, reasoning, checklists, prompts, errors, replies) as typed, syntax-highlighted cards that follow the Paseo theme, with its own settings page and chat find. The code does not gate on provider, so it applies to every agent; only the OMP-specific parts (job and IRC envelopes) are provider specific. Its manifest runs `npm ci --include=dev` during install, so the daemon needs `npm` on its PATH and `registry.npmjs.org`. Its server spawns `xdg-open` for "reveal path", which does nothing useful in a headless sandbox. **Conflicts with `mermaid` by default, see below.** |
 | [`emoji`](https://paseo.sh/plugins/yoseptf/emoji) (0.1.0) by YoseptF | `git:YoseptF/paseo-emoji` | `425e37563234d05a3ceaf15040db221625537db9` | Adds Slack-style `:emoji:` autocomplete to the composer using a bundled dictionary. Client-only; no server entry, runtime dependencies, network requests, or build commands. Uses the composer's DOM on desktop/web and intercepts Enter/Tab to accept a suggestion; native mobile is a no-op. Needs Paseo 0.8.0 or later. |
@@ -198,9 +199,9 @@ number of `code-review` references in any file differs from what it expects.
 ## Credit and licences
 
 - **Matt Pocock**: the 27 skills above. MIT, Copyright (c) 2026 Matt Pocock.
-- **Dex Horthy, HumanLayer**: the `pr` skill's menu of visuals is adapted from
-  HumanLayer's `show-me` skill, as that skill's own `CREDITS.md` says. MIT, Copyright (c)
-  2026 HumanLayer.
+- **Dex Horthy, HumanLayer**: the complete `show-me` skill is vendored at commit
+  `4d69d20f6e9b57b4fcf0d501ccfb1be961f0f329`; the `pr` skill's menu of visuals is also
+  adapted from it. MIT, Copyright (c) 2026 HumanLayer.
 - **Cathryn Lavery**: Diagram Design, MIT, Copyright (c) 2025 Cathryn Lavery.
   The separate lock and local adaptations are described above.
 - **Mine**: `paseo-first-mate` and the scripts in this directory, written with AI
@@ -305,6 +306,6 @@ drops files and starts one plugin installer that needs the separate paseo kit, s
 ## License
 
 MIT — see the repository [`LICENSE`](../LICENSE). The vendored skills are
-Copyright (c) 2026 Matt Pocock, and the `pr` skill's adapted section is Copyright (c)
-2026 HumanLayer, both also MIT; the notices ship at
+Copyright (c) 2026 Matt Pocock. `show-me` and the `pr` skill's adapted section are
+Copyright (c) 2026 HumanLayer, both also MIT; the notices ship at
 `files/home/.agents/licenses/`. See [`NOTICE`](NOTICE).

@@ -1,0 +1,16 @@
+{
+  "attribution": {
+    "author": "Dex Horthy / HumanLayer",
+    "copyright": "Copyright (c) 2026 HumanLayer",
+    "licenseFile": "files/home/.agents/licenses/humanlayer-skills-LICENSE",
+    "notice": "NOTICE",
+    "source": "https://github.com/humanlayer/skills"
+  },
+  "files": {
+    "files/home/.agents/skills/show-me/SKILL.md": "434a2346cc95e313b0d367d477dda2e23ba642dd2181757415a09500664af100",
+    "files/home/.agents/skills/show-me/agents/openai.yaml": "a1499d95abd8447558c535fe5554adcc3c9b988a0a39264a6283d430effe1e94"
+  },
+  "licenseSha256": "5f13c18ea00ea5c1384f41745feeca774079164f7f59a92e4ac0899ad217b26f",
+  "ref": "4d69d20f6e9b57b4fcf0d501ccfb1be961f0f329",
+  "skillPath": "plugins/show-me/skills/show-me"
+}

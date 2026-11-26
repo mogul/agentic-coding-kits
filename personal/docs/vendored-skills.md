@@ -54,12 +54,20 @@ authored here.
   takes bug reports with a real failing session, and no pull requests or new-skill
   proposals from outside. A change that only suits this kit belongs here.
 
+### HumanLayer's show-me
+
+`show-me` is a separate, unmodified MIT skill by Dex Horthy / HumanLayer. It is
+copied from `humanlayer/skills` at commit `4d69d20f6e9b57b4fcf0d501ccfb1be961f0f329`.
+`vendor/humanlayer-show-me.json` pins the source, licence, shipped file set, and
+SHA-256 hashes; `scripts/verify` checks it offline. To update it, review the upstream
+diff and licence, update the pin and hashes together, then run the standard kit checks.
+
 ## Credit
 
 | Work | Author | Licence | Where the notice lives |
 | --- | --- | --- | --- |
 | The 27 skills (`ask-matt`, `tdd`, `triage`, ...) | Matt Pocock | MIT, Copyright (c) 2026 Matt Pocock | `files/home/.agents/licenses/mattpocock-skills-LICENSE` |
-| The visuals menu in the `pr` skill, adapted from `show-me` | Dex Horthy, HumanLayer | MIT, Copyright (c) 2026 HumanLayer | `files/home/.agents/licenses/humanlayer-skills-LICENSE` |
+| The `show-me` skill and the visuals menu in the `pr` skill adapted from it | Dex Horthy, HumanLayer | MIT, Copyright (c) 2026 HumanLayer | `files/home/.agents/licenses/humanlayer-skills-LICENSE` |
 | `paseo-first-mate`, and this kit's scripts, tests and docs | Bret Mogilefsky, with AI assistance | MIT, this repository | [`../../LICENSE`](../../LICENSE) |
 
 `NOTICE` has the full provenance, including how closely the `pr` section matches
@@ -171,4 +179,4 @@ with `git ls-tree --name-only <ref> .agents/skills/` in the playbook repository.
 ## What is not verified
 
 No live sandbox run, on either backend. On msb every `files[]` record is copied
-separately; the effect of 84 records on creation time has not been measured.
+separately; the effect of 86 records on creation time has not been measured.

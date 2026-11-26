@@ -20,11 +20,15 @@ files/home/.agents/licenses/ in this directory.
    Every difference is listed in docs/vendored-skills.md. Matt Pocock did not make or
    review these changes and is not responsible for them.
 
-2. HumanLayer's show-me skill, inside Matt Pocock's pr skill
+2. HumanLayer's show-me skill
 
-   The "Summary" section of the pr skill (its menu of visuals and placement guidance) is
-   adapted from the show-me skill by Dex Horthy of HumanLayer, as the pr skill's own
-   CREDITS.md and SKILL.md metadata say. Comparing non-blank lines when this notice was
+    The complete `show-me` skill is copied from https://github.com/humanlayer/skills at
+    commit 4d69d20f6e9b57b4fcf0d501ccfb1be961f0f329. Its two shipped files and their
+    SHA-256 hashes are pinned in vendor/humanlayer-show-me.json.
+
+    The "Summary" section of Matt Pocock's `pr` skill (its menu of visuals and placement
+    guidance) is also adapted from show-me by Dex Horthy of HumanLayer, as the pr skill's
+    own CREDITS.md and SKILL.md metadata say. Comparing non-blank lines when this notice was
    written, 88 of the 93 lines of the pr skill's "### Summary" section (its heading
    through the line before "### Evidence") are identical to a line of show-me at
    https://github.com/humanlayer/skills (commit 4d69d20f6e9b57b4fcf0d501ccfb1be961f0f329).
