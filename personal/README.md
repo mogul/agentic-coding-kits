@@ -13,7 +13,7 @@ network hosts, `github.com` and `registry.npmjs.org`, for that command.
 
 ```text
 ~/.agents/skills/
-  paseo-first-mate/            the author's own skill (version 1.4.0) and two helper scripts
+  paseo-first-mate/            the author's own skill (version 1.5.0) and two helper scripts
     SKILL.md
     assets/first-mate-check.py   change detector (prints nothing when nothing changed)
     assets/first-mate-wait.sh    background wait loop around the detector; one loop per
