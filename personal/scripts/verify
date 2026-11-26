@@ -103,6 +103,13 @@ for asset in first-mate-check.py first-mate-wait.sh; do
   fi
 done
 
+# The compact checkpoint and repeated-action stop rule must stay in section 12 of the skill.
+cp_bad=0
+for needle in 'Active owner' 'Next blocking decision' 'CI / dependency state' 'Next action' 'Repeated-action stop rule'; do
+  sed -n '/^### 12\. Checkpoint Before Delegating/,/^## Reporting/p' "$SKILL_MD" | grep -qF -- "$needle" || { bad "SKILL.md lost checkpoint element: $needle"; cp_bad=1; }
+done
+[ "$cp_bad" -eq 0 ] && ok "SKILL.md keeps the state checkpoint fields and the repeated-action stop rule"
+
 info "3b. Vendored Pocock skills match their lock file"
 # vendor/mattpocock-skills.json pins the upstream commit and a sha256 per shipped
 # file. The set of vendored files must equal the lock's, byte for byte, so a

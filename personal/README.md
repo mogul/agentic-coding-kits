@@ -13,7 +13,7 @@ network hosts, `github.com` and `registry.npmjs.org`, for that command.
 
 ```text
 ~/.agents/skills/
-  paseo-first-mate/            the author's own skill (version 1.5.0), its references, and two helper scripts
+  paseo-first-mate/            the author's own skill (version 1.6.0), its references, and two helper scripts
     SKILL.md
     references/*.md              longer procedures the skill links to (delegation, status doc,
                                  handoff, host commands, stacking, cross-PR checks)

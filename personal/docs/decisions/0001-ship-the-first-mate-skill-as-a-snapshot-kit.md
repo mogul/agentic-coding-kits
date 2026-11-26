@@ -76,3 +76,11 @@ agent watch by the caller's `paseo.parent-agent-id` label instead of the agent's
 name, and agent/permission watching is opt-in and off by default (`agents on` /
 `permits on`). The kit's shape is unchanged: still files only, no commands, no
 egress.
+
+## Update 2026-11-26: skill 1.6.0
+
+The snapshot moved to skill version 1.6.0. `SKILL.md` gains section 12: a compact
+state checkpoint (active owner, next blocking decision, CI and dependency state,
+next action) before delegating or relaying a significant follow-up, and a
+repeated-action stop rule. Text only; the scripts and the kit's shape are
+unchanged, and `scripts/verify` now checks that the checkpoint fields remain.

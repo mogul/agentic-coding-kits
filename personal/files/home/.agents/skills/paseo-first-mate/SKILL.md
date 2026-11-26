@@ -1,7 +1,7 @@
 ---
 name: paseo-first-mate
 id: paseo-first-mate
-version: "1.5.0"
+version: "1.6.0"
 title: "Paseo First Mate"
 description: "Coordinate a multi-issue engineering effort through isolated Paseo workspaces, structured GitHub metadata, dependency-aware delivery, change-detecting follow-up, and a durable handoff."
 type: skill
@@ -71,6 +71,8 @@ portability:
   chatgpt: false
   generic_llm: false
 changelog:
+  - version: "1.6.0"
+    changes: "Add a compact state checkpoint (active owner, next blocking decision, CI and dependency state, next action) required before delegating or relaying a significant follow-up, and a repeated-action stop rule: pause, read the checkpoint, and say why the next action differs before repeating a discretionary status check or delegation. Observed coordination sessions grew costly through repeated handoffs, status narration, and repeated actions. No authority or safety rule changes."
   - version: "1.5.0"
     changes: "Wait loop made hard to lose: a first-command-every-turn rule, an hourly heartbeat backstop as part of the default procedure, `status` shows the age of the last detector run and warns when it is stale, and a cap expiry prints one line (default cap now 8 hours). Detector assets: two-phase save (`--peek`/`--commit`) so a killed loop reports a change again instead of losing it, flock-serialized local state, optional own-login filter (off by default), merge-state collapse with UNKNOWN retry, auto-prune of merged and closed items, current head and stale-review marker, absolute `FIRST_MATE_DIR`; offline tests in the kit. SKILL.md: Secrets section, reporting rules and a status doc, credential-limit and host-command pattern, permission-prompt handling, coordinator successor procedure, delegation prompt rules, gh-stack stacking, and a cross-PR checklist, the long ones in `references/`."
   - version: "1.4.0"
@@ -656,6 +658,7 @@ Updated: YYYY-MM-DD HH:MM UTC
 ## Operating Rules
 ## Controls
 ## Current Coordination State
+(first lines: the checkpoint, section 12)
 ## Completed Work
 ## Critical Path
 ## Parallel Work
@@ -676,8 +679,8 @@ Updated: YYYY-MM-DD HH:MM UTC
   loop command with its absolute path, interval and cap, the heartbeat ID and cron,
   schedule status (or "not visible"),
   agent cap, coordinator and delegated models, permission setup per workspace.
-- **Current Coordination State:** the first section read after each wake-up. Keep the
-  whole file near 200 lines.
+- **Current Coordination State:** the first section read after each wake-up; it
+  starts with the checkpoint (section 12). Keep the whole file near 200 lines.
 - **Wait Log:** short dated entries only. Clear it periodically: fold
   durable facts into the state sections, save a gitignored backup under
   `tmp/archive/`, then empty the log.
@@ -751,6 +754,47 @@ After upstream merges:
 
 Do not declare the milestone complete until production wiring, downstream
 consumers, current-head CI, review, and live evidence agree.
+
+### 12. Checkpoint Before Delegating, and Stop on Repetition
+
+Long coordination sessions grow costly when the coordinator re-narrates status and
+repeats the same check or hand-off. Two rules keep each step tied to current state.
+Neither grants authority: delivery levels, invariants (including invariant 12: a
+non-coordinator neither writes the checkpoint nor delegates), and user approvals
+apply as written. Neither delays a direct answer to the user.
+
+**Compact state checkpoint.** Before you delegate, or relay a significant
+follow-up to an agent or the user, write or refresh this block as the first lines of
+`Current Coordination State` in the handoff:
+
+```text
+Checkpoint (UTC time, evidence: verified | hypothesis | unverified)
+- Active owner: agent or person holding the work, workspace, delivery level
+- Next blocking decision: who must decide what, or "none"
+- CI / dependency state: exact-head checks, merge guards, upstream items
+- Next action: per active owner, the one action, who takes it, and the trigger
+```
+
+Keep it to these four fields, a few lines, replaced in place and not appended. Base
+it on state you read this turn, and label what you did not read. A follow-up that
+is not in the checkpoint's next action needs the checkpoint updated first. Put the
+checkpoint's relevant lines, not a history, in the delegation prompt.
+
+**Repeated-action stop rule.** Before you repeat a status check, a wait, a
+delegation, or a relay of the same content, stop and reread the checkpoint, then
+state in one sentence what changed or why this action differs from the last one. Do
+the action only if that sentence names new evidence (a notice, a changed head, a
+new decision, a different target, or an agent that went idle or finished without
+reporting). Otherwise do not repeat it: end the turn, ask the user for the missing
+decision, or escalate the blocker. Do not send the same task again to an agent that
+is still running its prior prompt; read its status first (section 5). An idle agent
+that has not reported is new evidence, and the section 5 nudge is allowed. A
+repeated action with no stated difference is a stall, not progress.
+
+The rule covers discretionary re-checks, re-delegations, and re-relays. It does not
+cover the Loop Rule's first-command `status` and restart, the scheduled check on a
+wake-up, the heartbeat, or the quiet wake-up end-turn (section 8). A quiet wake-up
+does not read the checkpoint.
 
 ## Reporting
 
@@ -871,6 +915,8 @@ Before declaring coordination complete, verify:
   this turn before any statement about the loop.
 - The wait loop and its heartbeat are stopped, and the state file cleared, when
   coordination ends.
+- The checkpoint was current before each delegation and significant relay, and no
+  discretionary action was repeated without a stated difference (section 12).
 
 ## Troubleshooting
 
@@ -889,6 +935,7 @@ Before declaring coordination complete, verify:
 | A forked session inherits "wait loop running" from the handoff | Treat it as unverified. The fork is a non-coordinator: no loop, read-only `--show`, and ask the user before taking over. |
 | Start exits 5 (another owner holds the loop) | Do not force it. Ask the user who the coordinator is; use `take-over` only on their word. |
 | A quiet turn fills with empty tool calls | Stop. Run the check once and end the turn (section 8). |
+| Repeated status checks, hand-offs, or the same delegation with no new evidence | Stop. Reread the checkpoint, state what differs, or end the turn or ask the user (section 12). |
 | Host-run script stalls with processes in state `T` | Job control froze the child. Use `timeout --foreground` and show live output. |
 | Reviewer's change request remains after the fix | Reply with the commits and wait for re-review; a push does not clear it. |
 | Release PR has no checks | Workflow-token PRs may not trigger them. Ask the user: exempt or trigger manually. |
