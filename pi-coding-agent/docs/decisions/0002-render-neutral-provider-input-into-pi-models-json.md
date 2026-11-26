@@ -74,9 +74,20 @@ providers and models from `~/.pi/agent/models.json` (or
    | `models[].contextWindow` | `models[].contextWindow` |
    | `models[].maxOutputTokens` | `models[].maxTokens` |
    | `cost.{input,output,cacheRead,cacheWrite}` | same fields, missing → `0` |
+   | `models[].inputModalities` | `models[].input` (`text`, `image` only) |
+   | `models[].reasoning` | validated, not emitted (see below) |
 
    pi's `ModelCost` requires all four cost fields. The neutral schema makes them
    optional, so absent values become `0` rather than failing the provider.
+
+   **Optional capability fields.** The neutral catalog also carries optional
+   `inputModalities` and `reasoning` (absent means unknown). The renderer
+   accepts both and still rejects malformed values. `inputModalities` maps to
+   pi's `input` for the two modalities pi can express (`text`, `image`); the rest
+   are dropped. `reasoning` is validated but not emitted: pi would start sending
+   thinking parameters on a flag that only states gateway support. Rejecting
+   these fields outright, as earlier revisions did, made the whole render fail
+   for any provider (such as `usai`) that publishes them.
 
    The credential is a `$NAME` environment reference. acq injects the value at
    runtime; the renderer never sees or writes it.

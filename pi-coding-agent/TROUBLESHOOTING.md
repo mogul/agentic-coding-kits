@@ -142,6 +142,7 @@ it cannot trust. Read the exact message; each maps to one validation:
 | `baseUrl host does not match` / `modelsUrl host does not match` | URL host differs from `facts.host` (SSRF containment) |
 | `unsupported apiProtocol` | provider declares something other than `openai-compatible` |
 | `duplicate model` | catalog repeats a model id |
+| `must be a boolean` / `must be a non-empty array` / `unsupported modality` / `duplicate modality` | a model's optional `reasoning` or `inputModalities` is malformed (see the neutral schema) |
 | `contains unsupported field` | input carries a field outside the neutral schemas |
 
 Do not work around these by editing `models.json` by hand; fix the provider

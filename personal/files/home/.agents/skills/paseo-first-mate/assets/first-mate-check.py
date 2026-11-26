@@ -4,8 +4,12 @@
 Prints NOTHING when nothing meaningful changed since the last run, so a
 wait loop that finds no change costs no model tokens. Prints one block per
 change otherwise. Read-only against GitHub and Paseo; the only writes are the
-local state and watch files in FIRST_MATE_DIR (default: ./tmp, which should be
-ignored by git).
+local state and watch files in FIRST_MATE_DIR (default: tmp, which should be
+ignored by git). FIRST_MATE_DIR is made absolute: a relative value resolves
+against the current directory, except that when that directory does not exist
+and this script itself sits in a directory with that path tail (the skill copies
+the scripts into tmp/), the script's directory is used. Running from inside tmp/
+therefore never creates tmp/tmp.
 
 What to watch lives in first-mate-watch.json, not in this script:
   {"repos": {"qs": "OWNER/repo", ...},
@@ -17,9 +21,28 @@ What to watch lives in first-mate-watch.json, not in this script:
 A watched branch reports each new commit on it (so work that lands from other
 sessions is seen). A watched workflow reports the latest run on a branch: its
 head, status, and conclusion (so a deploy that stays red after a merge is seen).
+A PR line shows its current head and a `stale-review=[...]` marker when a
+reviewer's latest approval or change request was made on an older head.
+mergeStateStatus is collapsed to conflict, behind, or ok, and a transient UNKNOWN
+is re-queried (and then keeps the previous value), so recomputation does not wake you.
+
+Saving. A report must not be consumed before it is delivered. Loops that can be
+killed use the two-phase form:
+  --peek    print what changed and stage a pending save bound to the exact saved
+            state it was computed against; consumes nothing
+  --commit  apply the staged save (and auto-prune) if that state is still current,
+            otherwise drop it
+A killed loop leaves the saved state untouched, so the next run reports the same
+change again: a duplicate, never a miss. A commit applies only a pending save that
+was staged under the same FIRST_MATE_TXN (unset matches unset), so one loop's commit
+never consumes another run's report. Without a flag the detector reports and saves
+in one step. State saved by an older version holds raw merge values, so run --reset
+once after upgrading, or expect one CHANGED line per PR.
 
 Usage:
-  first-mate-check.py                    compare to saved state, print changes, save
+  first-mate-check.py                    compare to saved state, print changes, save (one step)
+  first-mate-check.py --peek             print changes and stage the save
+  first-mate-check.py --commit           apply the staged save
   first-mate-check.py --show             print the full current snapshot, save nothing
   first-mate-check.py --reset            forget saved state (next run is a baseline)
   first-mate-check.py list               print the watch list
@@ -29,23 +52,67 @@ Usage:
                                          watch the latest run of a workflow on a branch
   first-mate-check.py remove pr qs#611   stop watching and forget its state (also: issue, branch, workflow)
   first-mate-check.py repo qs OWNER/repo register a repo alias
-  first-mate-check.py prune              stop watching merged/closed PRs and closed issues
+  first-mate-check.py prune              stop watching merged/closed PRs and closed issues now
+  first-mate-check.py autoprune on|off   do that automatically when a report is saved (default on)
+  first-mate-check.py selffilter on|off  ignore comments and reviews by your own login (default off)
   first-mate-check.py agents on|off      watch your own delegated agents (off by default)
   first-mate-check.py permits on|off     watch pending permission prompts (off by default)
+
+selffilter: your login is FIRST_MATE_SELF_LOGIN, or else `gh api user`. A human
+and an agent that share one login are both filtered, which also hides the human's
+own comments and reviews; leave it off in that setup. Toggling it, or running
+--reset, makes the next run a baseline.
+
+Needs Python 3.9+. The state lock uses fcntl; where that is missing (Windows) the
+detector still runs but concurrent runs are not serialized.
 """
+
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import time
+from contextlib import contextmanager, nullcontext, suppress
 
-HERE = os.path.abspath(os.environ.get("FIRST_MATE_DIR", "tmp"))
+try:
+    import fcntl
+except ImportError:  # no flock on this platform
+    fcntl = None
+
+DEFAULT_DIR = "tmp"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_dir(value, cwd=None, script_dir=None):
+    """Absolute FIRST_MATE_DIR (see the module docstring for the rule)."""
+    value = value or DEFAULT_DIR
+    if os.path.isabs(value):
+        return os.path.normpath(value)
+    value = os.path.normpath(value)
+    candidate = os.path.join(os.path.abspath(cwd or os.getcwd()), value)
+    script_dir = os.path.abspath(script_dir or SCRIPT_DIR)
+    if not os.path.isdir(candidate) and script_dir.endswith(os.sep + value) and os.path.dirname(script_dir) != os.sep:
+        return script_dir
+    return candidate
+
+
+HERE = resolve_dir(os.environ.get("FIRST_MATE_DIR"))
 os.makedirs(HERE, exist_ok=True)
 STATE = os.path.join(HERE, ".first-mate-state.json")
+PENDING = os.path.join(HERE, ".first-mate-pending.json")
+LASTRUN = os.path.join(HERE, ".first-mate-lastrun")
+LOCKFILE = os.path.join(HERE, ".state.lock")
+REPORT_LOCKFILE = os.path.join(HERE, ".report.lock")
 WATCH = os.path.join(HERE, "first-mate-watch.json")
 TIMEOUT = 45
+UNKNOWN_RETRIES = 3
+UNKNOWN_SLEEP = float(os.environ.get("FIRST_MATE_UNKNOWN_SLEEP", "3"))
+LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*(?:\[bot\])?$")
+GATING = ("APPROVED", "CHANGES_REQUESTED", "DISMISSED")
 
 DEFAULT_WATCH = {
     "repos": {},
@@ -61,11 +128,15 @@ DEFAULT_WATCH = {
     # `permits on` for heartbeat flows that receive no harness finish notices.
     "watch_agents": False,
     "watch_permits": False,
+    # Drop merged/closed PRs and closed issues from the watch list when a report
+    # that shows them is saved. Ignore your own login's comments and reviews
+    # (off: a human and an agent often share one login).
+    "autoprune": True,
+    "self_filter": False,
 }
 
 BRANCH_REF = re.compile(r"^(?P<alias>[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?)@(?P<branch>.+)$")
-WORKFLOW_REF = re.compile(
-    r"^(?P<alias>[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?):(?P<workflow>[^@:]+)@(?P<branch>.+)$")
+WORKFLOW_REF = re.compile(r"^(?P<alias>[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?):(?P<workflow>[^@:]+)@(?P<branch>.+)$")
 BAD_CONCLUSIONS = {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 BAD_STATES = {"FAILURE", "ERROR"}
 REF = re.compile(r"^(?:(?P<alias>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_-]+)#)(?P<num>\d+)$")
@@ -78,14 +149,41 @@ def load_watch():
     with open(WATCH) as fh:
         w = json.load(fh)
     for k, v in DEFAULT_WATCH.items():
-        w.setdefault(k, type(v)())
+        w.setdefault(k, json.loads(json.dumps(v)))
     return w
 
 
+def write_atomic(path, text):
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def save_watch(w):
-    with open(WATCH, "w") as fh:
-        json.dump(w, fh, indent=1)
-        fh.write("\n")
+    write_atomic(WATCH, json.dumps(w, indent=1) + "\n")
+
+
+@contextmanager
+def file_lock(path):
+    if fcntl is None:
+        yield
+        return
+    with open(path, "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        yield
+
+
+def state_lock():
+    """Serializes every read-modify-write of the state, pending, and watch files.
+    Held only around local file work, never around network calls."""
+    return file_lock(LOCKFILE)
 
 
 def resolve(w, ref):
@@ -146,14 +244,88 @@ def gh_json(args):
     return json.loads(run(["gh"] + args))
 
 
-def pr_snapshot(repo, num):
-    d = gh_json([
-        "pr", "view", str(num), "--repo", repo, "--json",
-        "headRefOid,isDraft,state,reviewDecision,mergeStateStatus,reviews,comments,statusCheckRollup",
-    ])
-    inline = sum(int(x) for x in run([
-        "gh", "api", f"repos/{repo}/pulls/{num}/comments?per_page=100", "--paginate",
-        "--jq", "length"]).split())
+_SELF = []
+
+
+def self_login():
+    """The login to ignore when selffilter is on. Never reads a token: it asks gh."""
+    if not _SELF:
+        login = (os.environ.get("FIRST_MATE_SELF_LOGIN") or run(["gh", "api", "user", "-q", ".login"])).strip()
+        if not LOGIN.match(login):
+            raise RuntimeError("could not determine your GitHub login; set FIRST_MATE_SELF_LOGIN")
+        _SELF.append(login)
+    return _SELF[0]
+
+
+def login_of(item, key="author"):
+    return (item.get(key) or {}).get("login") or "ghost"
+
+
+def collapse_merge_state(raw):
+    """DIRTY and BEHIND are real; UNKNOWN is None (not known yet); the rest is ok."""
+    if raw == "UNKNOWN":
+        return None
+    return {"DIRTY": "conflict", "BEHIND": "behind"}.get(raw, "ok")
+
+
+def previous_merge(prev):
+    """The merge value of the last saved snapshot, in collapsed form (old saves held the raw value)."""
+    m = re.search(r" merge=(\S+)", prev or "")
+    if not m:
+        return "ok"
+    return m.group(1) if m.group(1) in ("conflict", "behind", "ok") else collapse_merge_state(m.group(1)) or "ok"
+
+
+def stale_reviews(reviews, head):
+    """Each reviewer's latest approval or change request made on a known head other than `head`."""
+    latest = {}
+    for r in sorted(reviews, key=lambda x: x.get("submittedAt") or ""):
+        if r.get("state") in GATING:
+            latest[login_of(r)] = r
+    return sorted(
+        f"{who}:{r['state']}@{(r.get('commit') or {}).get('oid', '')[:8]}"
+        for who, r in latest.items()
+        if r["state"] != "DISMISSED" and (r.get("commit") or {}).get("oid") not in (None, "", head)
+    )
+
+
+def pr_snapshot(repo, num, prev=None, self_filter=False):
+    for attempt in range(UNKNOWN_RETRIES):
+        d = gh_json(
+            [
+                "pr",
+                "view",
+                str(num),
+                "--repo",
+                repo,
+                "--json",
+                "headRefOid,isDraft,state,reviewDecision,mergeStateStatus,reviews,comments,statusCheckRollup",
+            ]
+        )
+        merge = collapse_merge_state(d.get("mergeStateStatus"))
+        if merge is not None or d.get("state") != "OPEN":
+            break
+        if attempt + 1 < UNKNOWN_RETRIES:
+            time.sleep(UNKNOWN_SLEEP)
+    if merge is None:
+        merge = previous_merge(prev)
+    ignore = self_login() if self_filter else None
+    inline = len(
+        [
+            who
+            for who in run(
+                [
+                    "gh",
+                    "api",
+                    f"repos/{repo}/pulls/{num}/comments?per_page=100",
+                    "--paginate",
+                    "--jq",
+                    '.[] | (.user.login // "ghost")',
+                ]
+            ).splitlines()
+            if who != ignore
+        ]
+    )
     ok = bad = pend = 0
     bad_names = []
     for c in d.get("statusCheckRollup") or []:
@@ -166,15 +338,20 @@ def pr_snapshot(repo, num):
             pend += 1
         else:
             ok += 1
-    reviews = sorted(
-        f"{r['author']['login']}:{r['state']}@{(r.get('commit') or {}).get('oid', '')[:8]}"
-        for r in d.get("reviews") or [])
+    head = d["headRefOid"]
+    shown = [r for r in d.get("reviews") or [] if login_of(r) != ignore]
+    reviews = sorted(f"{login_of(r)}:{r['state']}@{(r.get('commit') or {}).get('oid', '')[:8]}" for r in shown)
+    stale = stale_reviews(shown, head)
+    n_comments = sum(1 for c in d.get("comments") or [] if login_of(c) != ignore)
     return (
-        f"head={d['headRefOid'][:8]} {'draft' if d['isDraft'] else 'ready'} {d['state']} "
-        f"decision={d.get('reviewDecision') or '-'} merge={d.get('mergeStateStatus')} "
+        f"head={head[:8]} {'draft' if d['isDraft'] else 'ready'} {d['state']} "
+        f"decision={d.get('reviewDecision') or '-'} merge={merge} "
         f"checks ok={ok} fail={bad} pending={pend}"
         + (f" failing={sorted(bad_names)}" if bad_names else "")
-        + f" reviews={reviews} comments={len(d.get('comments') or [])} inline={inline}")
+        + f" reviews={reviews}"
+        + (f" stale-review={stale}" if stale else "")
+        + f" comments={n_comments} inline={inline}"
+    )
 
 
 def issue_snapshot(repo, num):
@@ -193,9 +370,22 @@ def branch_snapshot(repo, branch):
 
 
 def workflow_snapshot(repo, workflow, branch):
-    rows = gh_json([
-        "run", "list", "--repo", repo, "--workflow", workflow, "--branch", branch,
-        "--limit", "1", "--json", "databaseId,headSha,status,conclusion"])
+    rows = gh_json(
+        [
+            "run",
+            "list",
+            "--repo",
+            repo,
+            "--workflow",
+            workflow,
+            "--branch",
+            branch,
+            "--limit",
+            "1",
+            "--json",
+            "databaseId,headSha,status,conclusion",
+        ]
+    )
     if not rows:
         return "no runs"
     r = rows[0]
@@ -207,9 +397,7 @@ def agents_snapshot(self_id):
     if self_id:
         args += ["--label", f"paseo.parent-agent-id={self_id}"]
     rows = json.loads(run(args))
-    items = sorted(
-        f"{r['shortId']}:{r['status']}:{r.get('name', '')[:36]}"
-        for r in rows)
+    items = sorted(f"{r['shortId']}:{r['status']}:{r.get('name', '')[:36]}" for r in rows)
     return "; ".join(items) or "none"
 
 
@@ -218,11 +406,13 @@ def permits_snapshot():
     return "; ".join(sorted(f"{r['agentShortId']}:{r['id']}" for r in rows)) or "none"
 
 
-def collect(w):
+def collect(w, prev=None):
+    prev = prev or {}
     jobs = {}
     for ref in w["prs"]:
         repo, n = resolve(w, ref)
-        jobs[f"pr {short(w, repo)}#{n}"] = (pr_snapshot, repo, n)
+        key = f"pr {short(w, repo)}#{n}"
+        jobs[key] = (pr_snapshot, repo, n, prev.get(key), bool(w.get("self_filter")))
     for ref in w["issues"]:
         repo, n = resolve(w, ref)
         jobs[f"issue {short(w, repo)}#{n}"] = (issue_snapshot, repo, n)
@@ -259,10 +449,45 @@ def load_state():
 
 
 def save_state(s):
-    tmp = STATE + ".tmp"
-    with open(tmp, "w") as fh:
-        json.dump(s, fh, indent=1, sort_keys=True)
-    os.replace(tmp, STATE)
+    write_atomic(STATE, json.dumps(s, indent=1, sort_keys=True))
+
+
+def digest(obj):
+    return hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()
+
+
+def remove_quietly(path):
+    with suppress(FileNotFoundError):
+        os.remove(path)
+
+
+PR_STATE = re.compile(r"^head=\S+ (?:draft|ready) (OPEN|MERGED|CLOSED) ")
+
+
+def finished(kind, snap):
+    """True for a merged or closed PR, or a closed issue (from its saved snapshot)."""
+    if kind == "pr":
+        m = PR_STATE.match(snap or "")
+        return bool(m) and m.group(1) in ("MERGED", "CLOSED")
+    return (snap or "").startswith("CLOSED")
+
+
+def prunable(w, snaps):
+    """Watched PRs and issues whose snapshot says they are finished: [(kind, item, label)]."""
+    found = []
+    for kind, key in (("pr", "prs"), ("issue", "issues")):
+        for item in w[key]:
+            snap = snaps.get(f"{kind} {item}")
+            if snap is not None and finished(kind, snap):
+                found.append((kind, item, PR_STATE.match(snap).group(1) if kind == "pr" else "CLOSED"))
+    return found
+
+
+def apply_prune(w, st, found):
+    for kind, item, _ in found:
+        key = "prs" if kind == "pr" else "issues"
+        w[key] = [x for x in w[key] if x != item]
+        st.pop(f"{kind} {item}", None)
 
 
 def manage(w, argv):
@@ -308,53 +533,33 @@ def manage(w, argv):
         print(f"alias {argv[1]} -> {argv[2]}")
     elif cmd == "prune":
         st = load_state()
-        dropped = []
-        for kind, key in (("pr", "prs"), ("issue", "issues")):
-            keep = []
-            for item in w[key]:
-                snap = st.get(f"{kind} {item}", "")
-                done = (" MERGED " in f" {snap} " or " CLOSED " in f" {snap} ") if kind == "pr" \
-                    else snap.startswith("CLOSED")
-                if done:
-                    dropped.append(f"{kind} {item}")
-                    st.pop(f"{kind} {item}", None)
-                else:
-                    keep.append(item)
-            w[key] = keep
+        found = prunable(w, st)
+        apply_prune(w, st, found)
         save_watch(w)
         save_state(st)
-        print("pruned: " + (", ".join(dropped) or "nothing"))
-    elif cmd in ("agents", "permits") and len(argv) == 2 and argv[1] in ("on", "off"):
-        key = "watch_agents" if cmd == "agents" else "watch_permits"
-        w[key] = (argv[1] == "on")
+        print("pruned: " + (", ".join(f"{k} {i}" for k, i, _ in found) or "nothing"))
+    elif cmd in ("agents", "permits", "autoprune", "selffilter") and len(argv) == 2 and argv[1] in ("on", "off"):
+        key = {
+            "agents": "watch_agents",
+            "permits": "watch_permits",
+            "autoprune": "autoprune",
+            "selffilter": "self_filter",
+        }[cmd]
+        changed = w.get(key) != (argv[1] == "on")
+        w[key] = argv[1] == "on"
         save_watch(w)
-        print(f"{cmd} watching {'on' if w[key] else 'off'}")
+        print(f"{cmd} {'on' if w[key] else 'off'}")
+        if cmd == "selffilter" and changed:
+            remove_quietly(STATE)
+            remove_quietly(PENDING)
+            print("state cleared: the next run is a baseline")
     else:
         raise SystemExit(__doc__)
 
 
-def main():
-    argv = sys.argv[1:]
-    if argv and not argv[0].startswith("--"):
-        manage(load_watch(), argv)
-        return
-    arg = argv[0] if argv else ""
-    if arg == "--reset":
-        if os.path.exists(STATE):
-            os.remove(STATE)
-        print("state reset")
-        return
-    w = load_watch()
-    new, errors = collect(w)
-    if arg == "--show":
-        for k in sorted(new):
-            print(f"{k}: {new[k]}")
-        for k in sorted(errors):
-            print(f"ERROR {k}: {errors[k]}")
-        return
-    old = load_state()
+def report_lines(old, new, errors, pruned, baseline):
     lines = []
-    if not old:
+    if baseline:
         lines.append(f"BASELINE saved ({len(new)} items)")
     else:
         for k in sorted(new):
@@ -364,9 +569,98 @@ def main():
                 lines.append(f"CHANGED {k}\n    was: {old[k]}\n    now: {new[k]}")
     for k in sorted(errors):
         lines.append(f"ERROR {k}: {errors[k]} (kept previous value)")
-    save_state({**old, **new})
+    for kind, item, label in pruned:
+        lines.append(f"PRUNED {kind} {item} ({label}): no longer watched after this report")
+    return lines
+
+
+def detect(arg):
+    """One detector pass. Concurrent passes take turns (the report lock), so a change is
+    never reported twice in one-step mode. The state lock covers only local file work,
+    never the network calls, so add/remove/--commit are not blocked behind a slow collect."""
+    with file_lock(REPORT_LOCKFILE) if arg != "--show" else nullcontext():
+        run_detect(arg)
+
+
+def run_detect(arg):
+    with state_lock():
+        w = load_watch()
+        old = load_state()
+        baseline = not os.path.exists(STATE)
+    new, errors = collect(w, old)
+    if arg == "--show":
+        for k in sorted(new):
+            print(f"{k}: {new[k]}")
+        for k in sorted(errors):
+            print(f"ERROR {k}: {errors[k]}")
+        return
+    if new or not errors:  # a pass where every query failed did not complete
+        write_atomic(LASTRUN, f"{int(time.time())}\n")
+    found = prunable(w, new) if w.get("autoprune") else []
+    lines = report_lines(old, new, errors, found, baseline)
     if lines:
-        print("\n".join(lines))
+        print("\n".join(lines), flush=True)
+    pending = {
+        "base": digest(old),
+        "txn": os.environ.get("FIRST_MATE_TXN", ""),
+        "new": new,
+        "prune": [[k, i] for k, i, _ in found],
+    }
+    with state_lock():
+        if arg == "--peek":
+            if lines:
+                write_atomic(PENDING, json.dumps(pending, sort_keys=True))
+            else:
+                remove_quietly(PENDING)
+        else:
+            apply_save(pending)
+
+
+def apply_save(pending):
+    """Save the fresh snapshots (and prunes) over the saved state. Caller holds the lock."""
+    st = {**load_state(), **pending["new"]}
+    w = load_watch()
+    apply_prune(w, st, [(k, i, "") for k, i in pending.get("prune", [])])
+    save_state(st)
+    save_watch(w)
+
+
+def commit_pending():
+    with state_lock():
+        if not os.path.exists(PENDING):
+            return
+        try:
+            with open(PENDING) as fh:
+                pend = json.load(fh)
+        except (OSError, ValueError):
+            remove_quietly(PENDING)
+            return
+        txn = os.environ.get("FIRST_MATE_TXN", "")
+        if pend.get("txn", "") != txn:
+            return  # staged by another run; only that run may commit it
+        if pend.get("base") == digest(load_state()):
+            apply_save(pend)
+        remove_quietly(PENDING)  # a stale pending (state moved) is dropped; the next run recomputes
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv and not argv[0].startswith("--"):
+        with state_lock():
+            manage(load_watch(), argv)
+        return
+    arg = argv[0] if argv else ""
+    if arg == "--commit":
+        commit_pending()
+    elif arg == "--reset":
+        with state_lock():
+            remove_quietly(STATE)
+            remove_quietly(PENDING)
+        print("state reset")
+    elif arg in ("", "--peek", "--show"):
+        detect(arg)
+    else:
+        raise SystemExit(__doc__)
 
 
 if __name__ == "__main__":

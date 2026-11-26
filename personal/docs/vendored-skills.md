@@ -5,6 +5,36 @@ anything under `files/home/.agents/skills/` other than `paseo-first-mate/`.
 
 ## The rule
 
+### Diagram Design
+
+Diagram Design is a separate, selectively vendored MIT skill by Cathryn Lavery,
+pinned at `f2496acbde9f45ccb55c24d4f75210c8a1355df8` (2.6.153). Its lock is
+`vendor/diagram-design.json`; its generator is `scripts/vendor-diagram-design`.
+Modify local policy/helpers under `vendor/diagram-design-local/`, then regenerate.
+Never hand-edit generated `files/home/.agents/skills/diagram-design/`.
+
+The generator verifies selected source files against the pinned Git tree and
+records source/output SHA-256s and a `thirdParty` notice entry. It installs only
+text references, templates and helpers, not logos, fonts, examples, galleries,
+marketplace manifests or maintainer tooling. Omitted reference links point to the
+pinned source for reading, not permission to fetch/run it. Local differences are:
+system-font defaults; project-local manual branding; replaced onboarding/profiles/
+doctor/icon/export instructions; offline templates; disabled direct upstream SVG
+CLI; guarded SVG and approval-gated Linux Bubblewrap PNG export. These additions
+do not alter Matt Pocock's copies or lock.
+
+```bash
+python3 personal/scripts/vendor-diagram-design --source-dir /path/to/verified-checkout
+python3 personal/scripts/vendor-diagram-design --check --source-dir /path/to/verified-checkout
+```
+
+Both commands still read the public pinned Git tree to verify source identity.
+Without `--source-dir`, selected files are fetched from that exact commit. Review
+the constant pin and file allowlist before any update. See
+[decision 0004](decisions/0004-vendor-offline-diagram-design.md).
+
+### Matt Pocock's skills
+
 Twenty-seven of the skills in this kit are **Matt Pocock's work**, copied from
 [mattpocock/skills](https://github.com/mattpocock/skills). They are generated, not
 authored here.

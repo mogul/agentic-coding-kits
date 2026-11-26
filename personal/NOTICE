@@ -56,6 +56,20 @@ files/home/.agents/licenses/ in this directory.
    repository licence. AI-assisted changes are disclosed in the pull request that
    introduces them.
 
+5. Diagram Design
+
+   Adapted from https://github.com/cathrynlavery/diagram-design at commit
+   f2496acbde9f45ccb55c24d4f75210c8a1355df8 (version 2.6.153).
+   Licence: MIT. Copyright (c) 2025 Cathryn Lavery.
+   Notice: files/home/.agents/licenses/diagram-design-LICENSE
+
+   The original design references, templates and Python helpers are selectively
+   copied. System fonts, project-local branding and approval-gated export are
+   local adaptations, maintained in vendor/diagram-design-local/ and recorded in
+   vendor/diagram-design.json. No logo gallery, third-party icons, font binaries,
+   examples, or upstream maintainer tooling is redistributed. Cathryn Lavery did
+   not make or review these adaptations. Local code was written with AI assistance.
+
 To add third-party material to this kit: ship its licence under
 files/home/.agents/licenses/, list it in spec.yaml, add an entry to THIRD_PARTY in
 scripts/vendor-pocock-skills (if it is part of the vendored set) or to this file, and

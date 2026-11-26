@@ -106,7 +106,7 @@ done
 # The compact checkpoint and repeated-action stop rule must stay in section 12 of the skill.
 cp_bad=0
 for needle in 'Active owner' 'Next blocking decision' 'CI / dependency state' 'Next action' 'Repeated-action stop rule'; do
-  sed -n '/^### 12\. Checkpoint Before Delegating/,/^## Working With/p' "$SKILL_MD" | grep -qF -- "$needle" || { bad "SKILL.md lost checkpoint element: $needle"; cp_bad=1; }
+  sed -n '/^### 12\. Checkpoint Before Delegating/,/^## Reporting/p' "$SKILL_MD" | grep -qF -- "$needle" || { bad "SKILL.md lost checkpoint element: $needle"; cp_bad=1; }
 done
 [ "$cp_bad" -eq 0 ] && ok "SKILL.md keeps the state checkpoint fields and the repeated-action stop rule"
 
@@ -132,7 +132,8 @@ for rel, digest in sorted(locked.items()):
         errors.append("missing: " + rel)
     elif hashlib.sha256(open(path, "rb").read()).hexdigest() != digest:
         errors.append("differs from lock: " + rel)
-own = ("files/home/.agents/skills/paseo-first-mate/", "files/home/paseo-plugins-install.sh")
+own = ("files/home/.agents/skills/paseo-first-mate/", "files/home/paseo-plugins-install.sh",
+       "files/home/.agents/skills/diagram-design/", "files/home/.agents/licenses/diagram-design-LICENSE")
 for item in lock.get("thirdParty", []):
     path = os.path.join(kit, item["licenseFile"])
     if not os.path.isfile(path):
@@ -280,6 +281,14 @@ $calls
 EOF_CALLS
 [ "$plug_bad" -eq 0 ] && ok "installer is mode 0755, wired to a background startup command, github.com (and registry.npmjs.org for npm sources) allow-listed, guarded at run time, and every plugin is pinned"
 
+info "3e. Diagram Design provenance and offline export guard"
+if "$PYTHON_BIN" "$KIT_DIR/scripts/test-diagram-design.py" >"$WORK/diagram.log" 2>&1; then
+  ok "Diagram Design hashes, offline templates, guarded SVG export and browser denial tests pass"
+else
+  bad "Diagram Design provenance or export guard failed"
+  sed 's/^/  | /' "$WORK/diagram.log" >&2
+fi
+
 info "4. Helper scripts parse"
 if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   if "$PYTHON_BIN" -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])' "$CHECK_PY" 2>"$WORK/py.log"; then
@@ -326,6 +335,20 @@ if command -v flock >/dev/null 2>&1; then
   fi
 else
   skip "flock not installed (wait-loop locking test not run)"
+fi
+
+info "4c. Detector behaviour (fake gh and paseo, offline)"
+# Two-phase save, own-login filter, merge-state collapse, auto-prune, status age, cap
+# message, and the stray tmp/tmp case. gh and paseo are fake executables on PATH.
+if command -v "$PYTHON_BIN" >/dev/null 2>&1 && command -v flock >/dev/null 2>&1; then
+  if "$PYTHON_BIN" "$KIT_DIR/scripts/test-first-mate-detector.py" >"$WORK/detector.log" 2>&1; then
+    ok "first-mate-check.py and first-mate-wait.sh behaviour tests pass ($(grep -c ' ok$' "$WORK/detector.log") tests)"
+  else
+    bad "first-mate detector behaviour tests failed"
+    sed 's/^/  | /' "$WORK/detector.log" >&2
+  fi
+else
+  skip "$PYTHON_BIN or flock not installed (detector behaviour test not run)"
 fi
 
 info "5. Shipped detector has no baked-in watch targets"

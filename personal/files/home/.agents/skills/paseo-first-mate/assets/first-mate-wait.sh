@@ -4,19 +4,34 @@
 # as it reports a change, so waiting costs no model tokens.
 #
 # Usage:
-#   first-mate-wait.sh INTERVAL_MIN MAX_MIN        start a loop (refuses if one is running)
-#   first-mate-wait.sh status                      none | mine | other, with owner, pid, start
+#   first-mate-wait.sh [INTERVAL_MIN [MAX_MIN]]    start a loop (refuses if one is running)
+#                                                  defaults: 15 and 480 (8 hours)
+#   first-mate-wait.sh status                      none | mine | other, with owner, pid, start,
+#                                                  and the age of the last completed detector run
 #   first-mate-wait.sh stop [--force]              stop your loop (--force: another owner's)
 #   first-mate-wait.sh take-over INTERVAL MAX      stop any running loop, then start yours
 #
+# The loop exits on purpose when it finds a change, so restart it after every notification:
+# run `status` first in every turn, and start a new loop in that same turn if it says none.
+# `status` also warns when the last detector run is older than twice the interval (a stuck
+# loop or a failing detector looks quiet otherwise). Pair the loop with an hourly heartbeat
+# that runs `status` and restarts the loop (see the skill).
+#
 # Exit codes of a start:
-#   0  change found; the report is printed (state already saved)
-#   3  nothing changed within MAX_MIN (prints nothing)
+#   0  change found; the report is printed, then the detector's save is committed
+#   3  nothing changed within MAX_MIN (prints one line saying the loop ended at its cap)
 #   4  a loop is already running and you own it; nothing started
 #   5  a loop is running and another owner holds it; nothing started
 #   2  usage or environment error (for example, flock is missing)
 # Run a start as a BACKGROUND shell command so the harness notifies on completion.
 # Use INTERVAL 5 while work is actively in flight, 15 when it is quiet.
+#
+# The report is printed BEFORE the detector's two-phase save is committed (--peek, print,
+# --commit), so a loop killed in between reports the same change again instead of losing it.
+# FIRST_MATE_DIR may be relative; it is resolved to an absolute path. When that directory does
+# not exist and this script sits in a directory with that path tail (the skill copies the
+# scripts into tmp/), that directory is used, so running from inside tmp/ never makes tmp/tmp.
+# FIRST_MATE_PYTHON picks the interpreter (default python3).
 #
 # Ownership is the PASEO_AGENT_ID of the caller (override with FIRST_MATE_OWNER). The
 # lock is an flock(2) on FIRST_MATE_DIR/.wait.lock, so it frees itself when the loop
@@ -25,12 +40,27 @@
 set -uo pipefail
 
 HERE=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-DIR=${FIRST_MATE_DIR:-tmp}
+PYTHON=${FIRST_MATE_PYTHON:-python3}
+resolve_dir() {
+  local v=${1#./}
+  v=${v%/}
+  case $1 in
+    /*) printf '%s\n' "$1"; return ;;
+  esac
+  if [ ! -d "$PWD/$v" ] && [ "${HERE%/"$v"}" != "$HERE" ] && [ "$(dirname "$HERE")" != / ]; then
+    printf '%s\n' "$HERE"
+  else
+    printf '%s\n' "$PWD/$v"
+  fi
+}
+DIR=$(resolve_dir "${FIRST_MATE_DIR:-tmp}")
 mkdir -p -- "$DIR" || exit 2
 DIR=$(CDPATH='' cd -- "$DIR" && pwd)
 export FIRST_MATE_DIR=$DIR
 LOCK=$DIR/.wait.lock
 INFO=$DIR/.wait.owner
+LASTRUN=$DIR/.first-mate-lastrun
+SECS_PER_MIN=${FIRST_MATE_MINUTE_SECS:-60}
 ME=${FIRST_MATE_OWNER:-${PASEO_AGENT_ID:-local}}
 export FIRST_MATE_OWNER=$ME
 
@@ -63,15 +93,57 @@ await_info() {
   return 1
 }
 
+# Seconds since the detector last completed a run, or empty when it never has.
+lastrun_age() {
+  local t
+  t=$(head -n 1 "$LASTRUN" 2>/dev/null)
+  case $t in ''|*[!0-9]*) return 0 ;; esac
+  t=$(( $(date +%s) - t ))
+  [ "$t" -lt 0 ] && t=0
+  echo "$t"
+}
+
+human_age() {
+  local s=$1
+  if [ "$s" -lt 120 ]; then echo "${s}s"
+  elif [ "$s" -lt 7200 ]; then echo "$(( s / 60 ))m"
+  else echo "$(( s / 3600 ))h$(( s % 3600 / 60 ))m"
+  fi
+}
+
+# The first word of the first line is none | mine | other; callers parse that. The last
+# detector run follows, with a WARNING line when it is older than twice the interval.
 describe() {
-  if ! is_running; then echo "none"; return 0; fi
-  local owner kind
+  local owner kind age interval line since
+  age=$(lastrun_age)
+  if ! is_running; then
+    echo "none"
+    [ -n "$age" ] && echo "last-run=$(human_age "$age") ago (no loop is running: start one)"
+    return 0
+  fi
   await_info
-  is_running || { echo "none"; return 0; }
+  if ! is_running; then
+    echo "none"
+    return 0
+  fi
   owner=$(info_get owner)
+  interval=$(info_get interval)
   if [ "$owner" = "$ME" ]; then kind=mine; else kind=other; fi
-  echo "$kind owner=${owner:-unknown} pid=$(info_get pid) started=$(info_get started)" \
-    "interval=$(info_get interval)m max=$(info_get max)m"
+  line="$kind owner=${owner:-unknown} pid=$(info_get pid) started=$(info_get started)"
+  line="$line interval=${interval}m max=$(info_get max)m"
+  if [ -z "$age" ]; then
+    echo "$line last-run=never"
+  else
+    echo "$line last-run=$(human_age "$age") ago"
+    # A loop younger than two intervals has not had time to refresh a stale file yet.
+    since=$(info_get epoch)
+    since=$(( $(date +%s) - ${since:-0} ))
+    if [ -n "$interval" ] && [ "$age" -gt $(( interval * 2 * SECS_PER_MIN )) ] \
+      && [ "$since" -gt $(( interval * 2 * SECS_PER_MIN )) ]; then
+      echo "WARNING: the last detector run was $(human_age "$age") ago, more than twice the ${interval}m interval;" \
+        "the loop may be stuck or the detector failing. Check with first-mate-check.py --show."
+    fi
+  fi
 }
 
 cmd_stop() {
@@ -110,7 +182,7 @@ cleanup() {
 }
 
 cmd_start() {
-  local interval=${1:-15} max=${2:-60} owner out deadline got _
+  local interval=${1:-15} max=${2:-480} owner out deadline got rc txn _
   case "$interval$max" in *[!0-9]*|'') usage; exit 2 ;; esac
   exec 9>"$LOCK"
   # status and stop probe the lock by briefly taking it, so a failed attempt is not
@@ -133,28 +205,39 @@ cmd_start() {
     exit 5
   fi
   # Write then rename, so status and stop never read a half-written owner file.
-  printf 'owner=%s\npid=%s\nstarted=%s\ninterval=%s\nmax=%s\n' \
-    "$ME" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$interval" "$max" > "$INFO.new" \
+  printf 'owner=%s\npid=%s\nstarted=%s\ninterval=%s\nmax=%s\nepoch=%s\n' \
+    "$ME" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$interval" "$max" "$(date +%s)" > "$INFO.new" \
     && mv -f -- "$INFO.new" "$INFO"
   OUTF=$(mktemp "$DIR/.wait.out.XXXXXX") || exit 2
   trap cleanup EXIT
   trap 'exit 143' TERM INT
-  deadline=$(( $(date +%s) + max * 60 ))
+  deadline=$(( $(date +%s) + max * SECS_PER_MIN ))
   while :; do
     # Children must not inherit the lock fd, or a killed loop would keep the lock.
     # The detector runs in the background and is waited on, so a stop (SIGTERM) is
     # handled at once instead of after the detector's network calls finish.
-    python3 "$HERE/first-mate-check.py" >"$OUTF" 2>&1 9>&- &
+    # --peek prints and stages the save without consuming anything; the commit below
+    # runs only after the report is printed. The txn ties the commit to this peek.
+    txn="$$.$(date +%s).$RANDOM"
+    FIRST_MATE_TXN=$txn "$PYTHON" "$HERE/first-mate-check.py" --peek >"$OUTF" 2>&1 9>&- &
     DET_PID=$!
     wait "$DET_PID"
+    rc=$?
     DET_PID=
     out=$(cat -- "$OUTF")
+    if [ "$rc" -ne 0 ] && [ -z "$out" ]; then out="first-mate-check.py exited with status $rc and printed nothing"; fi
     if [ -n "$out" ]; then
       printf '%s\n' "$out"
+      if ! FIRST_MATE_TXN=$txn "$PYTHON" "$HERE/first-mate-check.py" --commit 9>&- >/dev/null 2>&1; then
+        echo "WARNING: could not save the detector state; the same change will be reported again." >&2
+      fi
       exit 0
     fi
-    [ "$(date +%s)" -ge "$deadline" ] && exit 3
-    sleep $(( interval * 60 )) 9>&- &
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "first-mate-wait: loop ended at its ${max}-minute cap with no change; start a new one (status first)."
+      exit 3
+    fi
+    sleep $(( interval * SECS_PER_MIN )) 9>&- &
     SLEEP_PID=$!
     wait "$SLEEP_PID"
   done

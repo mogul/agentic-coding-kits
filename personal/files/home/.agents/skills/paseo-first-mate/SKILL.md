@@ -1,7 +1,7 @@
 ---
 name: paseo-first-mate
 id: paseo-first-mate
-version: "1.5.0"
+version: "1.6.0"
 title: "Paseo First Mate"
 description: "Coordinate a multi-issue engineering effort through isolated Paseo workspaces, structured GitHub metadata, dependency-aware delivery, change-detecting follow-up, and a durable handoff."
 type: skill
@@ -71,8 +71,10 @@ portability:
   chatgpt: false
   generic_llm: false
 changelog:
+  - version: "1.6.0"
+    changes: "Add a compact state checkpoint (active owner, next blocking decision, CI and dependency state, next action) required before delegating or relaying a significant follow-up, and a repeated-action stop rule: pause, read the checkpoint, and say why the next action differs before repeating a discretionary status check or delegation. Observed coordination sessions grew costly through repeated handoffs, status narration, and repeated actions. No authority or safety rule changes."
   - version: "1.5.0"
-    changes: "Add a compact state checkpoint (active owner, next blocking decision, CI and dependency state, next action) required before delegating or relaying a significant follow-up, and a repeated-action stop rule: pause, read the checkpoint, and say why the next action differs before repeating a status check or delegation. Observed coordination sessions grew costly through repeated handoffs, status narration, and repeated actions. No authority or safety rule changes."
+    changes: "Wait loop made hard to lose: a first-command-every-turn rule, an hourly heartbeat backstop as part of the default procedure, `status` shows the age of the last detector run and warns when it is stale, and a cap expiry prints one line (default cap now 8 hours). Detector assets: two-phase save (`--peek`/`--commit`) so a killed loop reports a change again instead of losing it, flock-serialized local state, optional own-login filter (off by default), merge-state collapse with UNKNOWN retry, auto-prune of merged and closed items, current head and stale-review marker, absolute `FIRST_MATE_DIR`; offline tests in the kit. SKILL.md: Secrets section, reporting rules and a status doc, credential-limit and host-command pattern, permission-prompt handling, coordinator successor procedure, delegation prompt rules, gh-stack stacking, and a cross-PR checklist, the long ones in `references/`."
   - version: "1.4.0"
     changes: "Agent watching reworked: scoped by `paseo.parent-agent-id` label instead of agent name, and agent/permission watching is now opt-in and off by default (`agents on` / `permits on`). The harness already sends finish notices and surfaces pending permits, so watching them by default made the loop wake on the coordinator's own create/archive/finish actions."
   - version: "1.3.0"
@@ -97,6 +99,20 @@ preserve enough durable context that another coordinator can resume safely.
 The First Mate coordinates delivery. It does not replace code owners, approve
 its own work, invent live validation results, or merge changes without explicit
 authorization.
+
+## Loop Rule (Read First)
+
+The wait loop exits on purpose when it finds a change, and it ends at its cap
+with a one-line notice (exit 3). A missed restart once left five reviews unseen
+for three hours. So, as the confirmed coordinator (section 1):
+
+1. **The first command of every turn is `first-mate-wait.sh status`.** If it
+   says `none`, restart the loop in that same turn, before anything else. A
+   non-coordinator (a fork, or a resumed session the user has not confirmed) runs
+   `status` read-only and starts nothing.
+2. **Always run the hourly heartbeat backstop** (section 8). It is part of the
+   default procedure, not an alternative.
+3. Report a loop as running only from a `status` result obtained this turn.
 
 ## When to Use
 
@@ -160,6 +176,26 @@ Single-change and read-only work are covered by `avoid_when` above.
     `take-over` and `stop --force` act on another agent's loop and need the user's
     explicit word each time; a standing grant does not cover them.
 
+## Secrets
+
+Invariant 9 in practice. Echoing a token or key value can lock the session, so
+treat these as hard stops, for yourself and in every delegation prompt:
+
+- Never print a secret's value: not in a command, a log, a PR comment, a handoff,
+  or a report. Names of variables are fine; values are not.
+- Never run: bare `env`, `printenv`, `export -p`, `set`, `gh auth token`,
+  `gh auth status` without a filter (or with a show-token flag), or a command
+  that dumps a credential file or config.
+- To run a command without a variable, use `env -u NAME cmd`. Do not strip the
+  token variable for a `gh` command that needs it: one `gh stack` command failed
+  with "none of the git remotes point to a known GitHub host" under `env -u`
+  and worked without it (hypothesis: it needed the variable for auth when no
+  stored login existed).
+- The bundled scripts never read a token. They call `gh` and `paseo`, which use
+  their own credentials, and the detector prints only state summaries.
+- If a value is printed by mistake, say so at once and tell the user. Do not
+  hide it or retry.
+
 ## Delivery Levels
 
 State the level in every delegation prompt. The user sets it; the coordinator
@@ -192,6 +228,11 @@ the handoff.
   unless the user explicitly overrides that.
 - The grant covers draft to ready only. It never covers merge.
 
+When the credential cannot do what the level allows (for example, a token that
+cannot push workflow files), the agent commits locally, makes one plain push
+attempt, and stops with the exact host command. See
+`references/host-commands.md`.
+
 ## Procedure
 
 ### 1. Adopt or Establish the Role
@@ -212,8 +253,12 @@ When resuming an existing effort, or when this session is a fork of another:
    state, resume it, or recreate it without authorization. Reconcile workspaces
    against `paseo workspace ls`; retained-workspace notes may be stale in a fresh
    sandbox.
-5. As the confirmed coordinator, ensure one wait loop is running (section 8).
-   Record your agent ID as coordinator in the handoff.
+5. As the confirmed coordinator, ensure one wait loop and its heartbeat backstop
+   are running (section 8). Record your agent ID as coordinator in the handoff.
+
+When the user hands the effort to a new coordinator, or you are about to, follow
+`references/handoff-and-successor.md`: the loop lock, the old heartbeat, and the
+agents' notices are all bound to the old coordinator's ID.
 
 ### 2. Establish the Mission
 
@@ -324,9 +369,17 @@ expose, so ask the user to set it after creating a workspace. A provider "build"
 mode may not suppress prompts; check pending permissions and the daemon log.
 Never approve a request unless the user instructs it. A standing policy the user
 has recorded in the handoff (for example, routine web search for public
-questions) counts as an instruction, within its stated scope. Some tools need a
-specific response shape; if a plain "allow" fails with a validation error, retry
-in the shape the error names and record the working form in the handoff.
+questions) counts as an instruction, within its stated scope. Never approve a
+prompt that sends data to an external service on your own.
+
+Some tools need a specific response shape; if a plain "allow" fails with a
+validation error, retry in the shape the error names and record the working form
+in the handoff. For a question-style prompt (for example, a search-service
+choice) that you must refuse, one shape worked where several "allow" forms were
+rejected by the API: `paseo_respond_to_permission` with
+`{"behavior":"deny","interrupt":false,"message":"<policy and reason>"}`. If an
+agent has finished and sits idle with a prompt nobody can dismiss, archiving the
+agent clears it (check section 10 first). Both were observed on one Paseo version.
 
 Base of a new workspace: `git fetch` first and create the workspace from
 `origin/<default branch>` (or the exact head of the PR you depend on), never from
@@ -339,6 +392,12 @@ Branching from an in-flight PR: branch from its exact head, expect a rebase afte
 it lands, and do not mark the new work ready first. If an SSH fetch fails
 host-key verification, fetch over authenticated HTTPS without altering remotes.
 Never bypass the check.
+
+Build the prompt from `references/delegation-prompt.md`: it holds the rules that
+each cost a session something when missing (verify the remote head, merge not
+rebase, never delete files you did not create, report every commit, re-review
+after applying suggestions, one heavy suite at a time, no external search, brief
+reports, clean up only your own scratch).
 
 An implementation prompt states: issue, branch, and delivery level; in- and
 out-of-scope behavior; base; acceptance criteria including the live criterion;
@@ -389,6 +448,10 @@ When the base branch moves and the lower PR conflicts, prefer merging the base
 into the lower branch (a plain merge, no force-push). The old head stays an
 ancestor, so the stack above stays valid; only the upper PR needs a sync. Any
 force-push still needs the user's approval.
+
+For stacking PRs that already have reviews, follow `references/stacking.md`; it
+points to the `github/gh-stack` skill for the command details instead of repeating
+them.
 
 For cross-repository dependencies:
 
@@ -447,21 +510,34 @@ are satisfied and current-head CI/review is green, unless the user has granted
 
 ### 8. Follow Up With a Change-Detecting Check
 
-The coordinator needs something to wake it. Two mechanisms are acceptable; use the
-one the user prefers and record the choice and any later change in the handoff:
+The coordinator needs something to wake it. Use both of these together, and
+record the choices and any later change in the handoff:
 
-- **Background wait loop (default, cheapest).** A shell loop that runs the check
+- **Background wait loop (the cheap wake-up).** A shell loop that runs the check
   on an interval and exits only when something changed. The harness notifies the
   coordinator when it finishes, so waiting costs no model calls. There is at most
-  one loop per `FIRST_MATE_DIR`, and it is owned by the agent that started it.
-- **Paseo heartbeat.** A scheduled prompt that runs the check each time. Use
-  `paseo heartbeat update <id> --cron ...` to change its cadence (for example,
-  hourly while nothing is moving, every 15 minutes once something changes).
-  Prefer it when the user plans to fork or resume sessions often: a heartbeat is a
-  named schedule, so it is one object that no fork can duplicate, at the price of a
-  model call per run.
+  one loop per `FIRST_MATE_DIR`, and it is owned by the agent that started it. It
+  ends on every change and at its cap, so it needs restarting (see the Loop Rule).
+- **Hourly Paseo heartbeat (the backstop, always on).** A scheduled prompt that
+  checks the loop is alive. When healthy it costs one shell call. It is what
+  catches a loop that ended and was not restarted. Create it when you start the
+  loop (`paseo heartbeat create`, five-field cron, for example `7 * * * *`), and
+  delete it when coordination ends. Its prompt, with the path filled in:
 
-Either way, a quiet wake-up must not turn into filler. Empty calls (`true`,
+  ```text
+  Run `<absolute path>/first-mate-wait.sh status`. If it starts with `mine` and
+  has no WARNING line, end the turn silently. If it starts with `none`, start the
+  loop again as a background command (`<absolute path>/first-mate-wait.sh
+  <interval> <cap>`), run `<absolute path>/first-mate-check.py --show` once, and
+  say one line about what you restarted. If it has a WARNING line (the last
+  detector run is stale), run `--show` to see the error, then `stop` and start the
+  loop again, and say one line. If it starts with `other`, say so once and do
+  nothing else. Make no tool calls beyond those named.
+  ```
+
+  Use `paseo heartbeat update <id> --cron ...` to change its cadence.
+
+In both cases a quiet wake-up must not turn into filler. Empty calls (`true`,
 `date > /dev/null`) cost tokens, change nothing, and can run away into hundreds
 of calls. Run the check once, then end the turn.
 
@@ -480,15 +556,41 @@ Bundled assets:
   (for example `add branch kits@main`,
   `add workflow kits:deploy.yml@main`); `--show` prints the snapshot without
   saving, and `--reset` forgets state. State and watch files live in
-  `FIRST_MATE_DIR` (default `./tmp`, which must be ignored by git).
-- `assets/first-mate-wait.sh INTERVAL_MIN MAX_MIN` runs the check on an interval
-  and exits as soon as it reports a change (exit 0, report printed) or at the cap
-  (exit 3, nothing printed). It holds an `flock` on `FIRST_MATE_DIR/.wait.lock`
+  `FIRST_MATE_DIR` (default `tmp`, which must be ignored by git). It is made
+  absolute, and a relative value does not nest when you run from inside it (the
+  stray `tmp/tmp` bug).
+  - **Two-phase save.** `--peek` prints what changed and stages the save, without
+    consuming anything. `--commit` applies it only if the saved state is still the
+    one the peek used. The wait loop runs peek, prints, then commit. A loop killed
+    in between leaves the state untouched, so the next run reports the same change
+    again: a duplicate, never a miss. A run with no flag does both in one step.
+  - **Merge state** is collapsed to `conflict`, `behind`, or `ok`, and a transient
+    `UNKNOWN` is re-queried up to three times, so GitHub recomputing does not wake
+    you.
+  - **Each PR line** shows its current head, and `stale-review=[...]` when a
+    reviewer's latest approval or change request was made on an older head, so you
+    need not work out whether it applies.
+  - **Merged and closed items** are pruned from the watch list automatically when
+    the report that shows them is saved, and the report says so (`PRUNED ...`).
+    `autoprune off` turns that off; `prune` does it on demand.
+  - **Own-login filter (`selffilter on`, off by default).** It ignores comments and
+    reviews written by your own login, so your own posts do not wake the loop. If a
+    human and an agent share one login, it also hides the human's comments and
+    reviews, which is the worse failure, so leave it off in that setup and accept
+    the extra wake-up. Your login comes from `FIRST_MATE_SELF_LOGIN` or `gh api user`.
+  - Needs Python 3.9+; the wait script needs bash 3.2+ and `flock`.
+- `assets/first-mate-wait.sh [INTERVAL_MIN [MAX_MIN]]` runs the check on an
+  interval (default 15 minutes, cap 480) and exits as soon as it reports a change
+  (exit 0, report printed) or at the cap (exit 3, one line saying so). It holds an
+  `flock` on `FIRST_MATE_DIR/.wait.lock`
   and records the owner (`$PASEO_AGENT_ID`), pid, and start time. The lock frees
   itself when the process dies, so there is no stale pidfile. Starting while a
   loop is running never starts a second one: exit 4 if you own it, exit 5 if
   another agent does. Other forms:
-  - `status` prints `none`, `mine ...`, or `other owner=<id> ...`.
+  - `status` prints `none`, `mine ...`, or `other owner=<id> ...`, with
+    `last-run=<age> ago`, the age of the last completed detector run. It adds a
+    `WARNING` when that age is over twice the interval: a stuck loop or a failing
+    detector otherwise looks like a quiet one.
   - `stop` stops your own loop; `stop --force` stops another owner's.
   - `take-over INTERVAL MAX` stops any running loop and starts yours. Use it only
     after the user confirms you are the coordinator.
@@ -501,15 +603,17 @@ Procedure:
    workflows that the effort's milestone depends on. A merge you did not make
    (another session, another person) and a pipeline that stays red after your
    merge are both invisible to a PR-only watch list.
-2. For the wait loop, run `first-mate-wait.sh status` first, then start the
-   script as a **background** shell command only if it says `none`. For a
-   heartbeat, have its prompt run `first-mate-check.py` once.
+2. Run `first-mate-wait.sh status` first, then start the script as a
+   **background** shell command only if it says `none`. Create the hourly heartbeat
+   with the prompt above. Use absolute paths in both.
 3. Use a 5-minute interval while work is in flight (an agent running, CI pending,
-   or a review or live run awaited) and 15 minutes when quiet. Use a cap of about
-   two hours on the wait loop. After handling a notification, ensure a loop is
-   running (`status`, then start if `none`); never start one blindly. To change
-   the interval, `stop` and start again. Exit code 4 on a start means the loop
-   you wanted is already there, so do nothing more.
+   or a review or live run awaited) and 15 minutes when quiet. Use a cap of 8 to
+   10 hours (`480` to `600`) on the wait loop, since sessions run long. A cap
+   expiry prints one line and exits 3: start a new loop. After handling a
+   notification, run `status` and start a loop if it says `none`, in that same
+   turn; never start one blindly. To change the interval, `stop` and start again.
+   Exit code 4 on a start means the loop you wanted is already there, so do
+   nothing more.
 4. **Quiet wake-up rule:** if the check reports nothing, make no further tool
    calls and end the turn. Whether to say "no change" follows the user's current
    preference; record it in the handoff. Say it only when it is true: the check
@@ -519,14 +623,17 @@ Procedure:
    When a branch report shows a merge, reconcile before anything else: which
    open recommendations, agents, and PRs does it supersede, conflict with, or
    unblock? Another session may have fixed the problem differently.
-6. Prune merged and closed items from the watch list.
+6. Merged and closed items are pruned automatically; add new PRs as you create
+   or adopt them. Periodically run the checks in `references/cross-pr-checklist.md`.
 7. Report a loop as running only from a `status` result obtained this turn,
    never from the handoff or from memory.
 
-The detector saves its snapshot when it reports. Two agents running it against
-one `FIRST_MATE_DIR` split the events between them, and one never sees a change
-the other consumed. Only the coordinator runs it in saving mode; everyone else
-uses `--show`.
+The detector saves its snapshot when a report is committed. Two agents running it
+in saving mode against one `FIRST_MATE_DIR` split the events between them, and one
+never sees a change the other consumed. Only the coordinator runs it in saving
+mode; everyone else uses `--show`. Reading a PR directly (`gh pr view`) before you
+state its state is still required: the detector summarizes, it does not replace
+reading.
 
 The check resolves exact-head state, so stale cached PR check fields cannot
 mislead it. It cannot see GitHub notifications or review requests on PRs outside
@@ -568,19 +675,25 @@ Updated: YYYY-MM-DD HH:MM UTC
 ## Wait Log
 ```
 
-- **Controls:** coordinator agent ID (`$PASEO_AGENT_ID` of the owner), wait
-  mechanism (loop or heartbeat), interval, and cap, schedule status (or "not visible"),
+- **Controls:** coordinator agent ID (`$PASEO_AGENT_ID` of the owner), the wait
+  loop command with its absolute path, interval and cap, the heartbeat ID and cron,
+  schedule status (or "not visible"),
   agent cap, coordinator and delegated models, permission setup per workspace.
 - **Current Coordination State:** the first section read after each wake-up; it
   starts with the checkpoint (section 12). Keep the whole file near 200 lines.
 - **Wait Log:** short dated entries only. Clear it periodically: fold
   durable facts into the state sections, save a gitignored backup under
   `tmp/archive/`, then empty the log.
-- **Standing rules:** record every user process rule with its date: delivery
-  grants, ready-when-green, filing rule, self-review rule, agent reuse, and
-  standing answers to routine permission prompts (for example, "web search is
-  allowed for public questions"). Apply a recorded policy; ask about anything it
-  does not cover.
+- **Standing rules:** record every user process rule with its date, verbatim
+  where you can: delivery grants, ready-when-green, filing rule, self-review
+  rule, agent reuse, reporting style, things never to touch, and standing answers
+  to routine permission prompts (for example, "external search services are
+  denied; fetching public project sites is allowed"). Apply a recorded policy; ask
+  about anything it does not cover. Rules given mid-session are the most valuable
+  content for a successor.
+- **Status doc and context:** if you keep a status doc (Reporting), record its
+  path. Tell the user when your context window is about 70% full and prepare the
+  handoff then (`references/handoff-and-successor.md`), not at the last moment.
 - **Pending Decisions and Held Items:** add this section to the template. For each
   open question, record your recommendation, the options, and the trigger that
   would make it urgent, so the user can ask "what did you think?" and get the
@@ -679,9 +792,28 @@ that has not reported is new evidence, and the section 5 nudge is allowed. A
 repeated action with no stated difference is a stall, not progress.
 
 The rule covers discretionary re-checks, re-delegations, and re-relays. It does not
-cover the scheduled check on a wake-up, the quiet wake-up end-turn, or the
-`status`-then-start of the wait loop after a notification (section 8). A quiet
-wake-up does not read the checkpoint.
+cover the Loop Rule's first-command `status` and restart, the scheduled check on a
+wake-up, the heartbeat, or the quiet wake-up end-turn (section 8). A quiet wake-up
+does not read the checkpoint.
+
+## Reporting
+
+Keep chat short and put the state in a file the user can leave open.
+
+- **Maintain a status doc** (recommended): one Markdown file, updated in place on
+  every change, with sections such as Needs you, In progress, Waiting on
+  reviewers, Backlog, Leaving alone, Merged this session, and Standing rules. Move
+  rows between sections as state changes and delete a row when it stops being
+  true. Template and rules: `references/status-doc.md`.
+- **One line per event** with a full link, plus any decision you need from the
+  user. Add only what the PR and its commits do not already say. Never recap a
+  push, comment, or review that is already posted, and never repost a table.
+- **A quiet wake-up says nothing** (or one honest line if the user asked for it).
+- **Do not report from memory.** Re-read the PR before you state its state, and
+  name the head SHA when you say "done". If you were wrong, say so plainly and fix
+  it.
+- **When asked why something was missed,** give the root cause with timestamps,
+  not an apology.
 
 ## Working With the User and Reviewers
 
@@ -706,7 +838,11 @@ wake-up does not read the checkpoint.
   silently. Say which checks did not run, and ask before installing anything.
 - **Host-run scripts.** When the user must run something on their machine, give
   one line starting with a `cd` to the right worktree, or a script plus a one-line
-  invocation. Scripts must:
+  invocation. Put no `#` comments inside any block the user will paste: an
+  interactive zsh passes `#` through as an argument, so give expectations in
+  prose. Copy files the host must read (a PR body, a script) into the worktree and
+  exclude them from Git, because the host cannot see the sandbox's temporary
+  directories (`references/host-commands.md`). Scripts must:
   - use `timeout --foreground`; plain `timeout` backgrounds the child's process
     group, and job control freezes it (state `T`) when it touches the terminal;
   - show live output (`tee`) and set non-interactive flags for the tool under test;
@@ -727,6 +863,14 @@ wake-up does not read the checkpoint.
   Raise it early; the exemption or manual trigger is the user's decision.
 - **State only what you have verified.** If you have not looked since the last
   report, say so. Correct a mistaken claim as soon as you notice it.
+- **Tie evidence to a head.** Another agent's result (for example, a run on a
+  platform you cannot reach) counts only for the exact SHA it names. Label an older
+  report "old head, does not carry over". `NOT EXERCISED` is a result; never turn
+  it into PASS. Hosted CI is the authority, and the sandbox cannot run other
+  platforms, so say that on the PR.
+- **Tiers and host recipes.** Split risky acceptance into a safe tier on the real
+  account and a destructive tier in an isolated account, VM, or CI runner, and
+  watch for the recipe pitfalls in `references/host-commands.md`.
 - **Lead reports with what changed and what needs a decision.** List decisions
   once under "What I need from you".
 
@@ -769,7 +913,8 @@ Before declaring coordination complete, verify:
 - The handoff reflects the final state and its log is cleared.
 - Exactly one coordinator is recorded, and `first-mate-wait.sh status` was run
   this turn before any statement about the loop.
-- The wait loop or heartbeat is stopped and its state file cleared when coordination ends.
+- The wait loop and its heartbeat are stopped, and the state file cleared, when
+  coordination ends.
 - The checkpoint was current before each delegation and significant relay, and no
   discretionary action was repeated without a stated difference (section 12).
 
@@ -795,7 +940,28 @@ Before declaring coordination complete, verify:
 | Reviewer's change request remains after the fix | Reply with the commits and wait for re-review; a push does not clear it. |
 | Release PR has no checks | Workflow-token PRs may not trigger them. Ask the user: exempt or trigger manually. |
 | Wait script reports an API error | One transient error is noise (the previous value is kept); repeated errors are a blocker. |
+| The loop finished and nobody noticed | Check `last-run=` in `status` and the heartbeat. Restart in the same turn, run the check once with `--show`, and report the gap with timestamps. The Loop Rule and the heartbeat exist to prevent this. |
+| `status` warns that the last run is stale | The loop is stuck or the detector is failing. Run `first-mate-check.py --show` to see the error, then `stop` and start again. |
+| A report arrives twice | Expected after a kill between report and commit: the two-phase save prefers a duplicate to a miss. Compare the heads; nothing was lost. |
+| A stray `tmp/tmp` appears, or `add pr` says "unknown repo alias" | Different `FIRST_MATE_DIR` or working directory from the one that holds the watch file. Use an absolute `FIRST_MATE_DIR`; the scripts now resolve it, but older copies do not. |
+| After upgrading the scripts, every PR reports a change once | The saved state holds the old merge-state wording. Run `first-mate-check.py --reset` and take the baseline. |
+| `gh pr view --json reviewRequests` fails on a GraphQL scope error | Use REST: `gh api repos/OWNER/REPO/pulls/N` (`.requested_reviewers`), and request with `gh api -X POST .../requested_reviewers -f 'reviewers[]=LOGIN'` (`references/host-commands.md`). |
+| A push is rejected for a missing scope (for example, workflow files) | Stop after one attempt. Give the exact host command and verify the remote head afterwards (`references/host-commands.md`). |
+| An agent raised a search-service permission prompt | Deny it with a message (Permissions in section 5); never approve an external-service prompt on your own. If the prompt cannot be cleared, archive the idle agent. |
+| An agent errors with a transient network error | Re-prompt it ("restart from the top, the worktree is clean") before replacing it. Keep one agent per branch. |
+| Workspace creation fails with a git configuration error | Run `git worktree prune`, delete the stale local branch of the same name if it matches the remote, and retry. |
+| A successor coordinator gets no finish notices | Agents carry the old coordinator's `paseo.parent-agent-id`. Poll `paseo_get_agent_status` on each wake-up (`references/handoff-and-successor.md`). |
 | Coordinator context is compacted | Read the handoff, GitHub metadata, and the active Paseo inventory before acting. |
+
+## References
+
+- `references/delegation-prompt.md`: rules and template for every delegation prompt.
+- `references/status-doc.md`: the maintained status doc and chat reporting rules.
+- `references/handoff-and-successor.md`: handing the effort to a new coordinator.
+- `references/host-commands.md`: credential limits, host commands, recipe pitfalls,
+  evidence, and verification tiers.
+- `references/stacking.md`: stacking reviewed PRs with `github/gh-stack`.
+- `references/cross-pr-checklist.md`: periodic cross-PR checks.
 
 ## Related Patterns
 

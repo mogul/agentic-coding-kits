@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url"
 import Ajv2020 from "ajv/dist/2020.js"
 import { parse as parseYaml } from "yaml"
 
-import { applyModelsProjection, CATALOG_FIELDS, COST_FIELDS, FACTS_FIELDS, loadProviderInputs, MODEL_FIELDS, renderModels } from "../files/home/pi-coding-agent-render-models.mjs"
+import { applyModelsProjection, CATALOG_FIELDS, COST_FIELDS, FACTS_FIELDS, loadProviderInputs, MODEL_FIELDS, NEUTRAL_MODALITIES, renderModels } from "../files/home/pi-coding-agent-render-models.mjs"
 
 const execFileAsync = promisify(execFile)
 const KIT_ROOT = fileURLToPath(new URL("..", import.meta.url))
@@ -399,6 +399,102 @@ test("defaults: name falls back to id, missing cost fields become 0, and unknown
   }
 })
 
+test("capability fields: inputModalities maps to pi input, reasoning is validated but not emitted", async () => {
+  const directory = await tempDir()
+  try {
+    const catalog = {
+      schemaVersion: "acq-neutral-model-catalog/v1",
+      providerId: "opencode-go",
+      models: [
+        { id: "vision", inputModalities: ["text", "image"], reasoning: true },
+        { id: "text-only", inputModalities: ["text"], reasoning: false },
+        { id: "image-only", inputModalities: ["image"] },
+        { id: "extra-modalities", inputModalities: ["pdf", "image", "audio", "video", "text"] },
+        { id: "unrepresentable", inputModalities: ["audio", "pdf"] },
+        { id: "unknown" },
+      ],
+    }
+    const document = await renderedFor(directory, { catalog })
+    const byId = Object.fromEntries(document.providers["opencode-go"].models.map((model) => [model.id, model]))
+    assert.deepEqual(byId.vision, { id: "vision", name: "vision", input: ["text", "image"] })
+    assert.deepEqual(byId["text-only"], { id: "text-only", name: "text-only", input: ["text"] })
+    assert.deepEqual(byId["image-only"].input, ["image"])
+    assert.deepEqual(byId["extra-modalities"].input, ["text", "image"])
+    assert.equal("input" in byId.unrepresentable, false)
+    assert.equal("input" in byId.unknown, false)
+    for (const model of Object.values(byId)) assert.equal("reasoning" in model, false)
+    await assertPiSchemaValid(document, "capability fields")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("capability fields fail closed on malformed values", async () => {
+  const directory = await tempDir()
+  try {
+    const bad = (model) => ({ schemaVersion: "acq-neutral-model-catalog/v1", providerId: "opencode-go", models: [model] })
+    const cases = [
+      [{ id: "m", reasoning: "yes" }, /reasoning for 'opencode-go\/m' must be a boolean/],
+      [{ id: "m", inputModalities: [] }, /must be a non-empty array/],
+      [{ id: "m", inputModalities: "text" }, /must be a non-empty array/],
+      [{ id: "m", inputModalities: ["text", "hologram"] }, /unsupported modality/],
+      [{ id: "m", inputModalities: [1] }, /unsupported modality/],
+      [{ id: "m", inputModalities: ["text", "text"] }, /duplicate modality/],
+    ]
+    for (const [index, [model, pattern]] of cases.entries()) {
+      await assert.rejects(renderedFor(path.join(directory, String(index)), { catalog: bad(model) }), pattern)
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("a usai-shaped catalog with capability fields renders end to end", async () => {
+  const directory = await tempDir()
+  try {
+    const facts = {
+      schemaVersion: "acq-provider-facts/v1",
+      providerId: "usai",
+      apiProtocol: "openai-compatible",
+      host: "api.gsa.usai.gov",
+      baseUrl: "https://api.gsa.usai.gov/api/v1",
+      modelsUrl: "https://api.gsa.usai.gov/api/v1/models",
+      keyEnv: "USAI_API_KEY",
+    }
+    const catalog = {
+      schemaVersion: "acq-neutral-model-catalog/v1",
+      providerId: "usai",
+      models: [
+        {
+          id: "claude-sonnet-5.5",
+          name: "Claude Sonnet 5.5",
+          contextWindow: 1000000,
+          maxOutputTokens: 128000,
+          cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+          inputModalities: ["text", "image"],
+        },
+        { id: "claude-opus-5", contextWindow: 1000000 },
+      ],
+      recommendations: { primary: "claude-sonnet-5.5" },
+    }
+    const catalogSchema = await readJson(KIT_ROOT, "tests", "schemas", "acq-neutral-model-catalog.schema.json")
+    const ajv = new Ajv2020({ allErrors: true, strict: false })
+    const validateCatalog = ajv.compile(catalogSchema)
+    assert.equal(validateCatalog(catalog), true, ajv.errorsText(validateCatalog.errors))
+
+    const root = await makeRoot(directory, { providerId: "usai", facts, catalog })
+    const modelsFile = path.join(directory, "models.json")
+    await execFileAsync(process.execPath, [RENDERER, "--provider-root", root, "--models-file", modelsFile])
+    const document = JSON.parse(await readFile(modelsFile, "utf8"))
+    assert.equal(document.providers.usai.apiKey, "$USAI_API_KEY")
+    assert.equal(document.providers.usai.models.length, 2)
+    assert.deepEqual(document.providers.usai.models[0].input, ["text", "image"])
+    await assertPiSchemaValid(document, "usai")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("neutral tiered pricing maps to a valid pi cost tier, with or without base cost", async () => {
   const directory = await tempDir()
   try {
@@ -659,6 +755,7 @@ test("renderer field allowlists match the vendored neutral schemas", async () =>
   assert.deepEqual([...CATALOG_FIELDS].sort(), Object.keys(catalogSchema.properties).sort())
   assert.deepEqual([...MODEL_FIELDS].sort(), Object.keys(catalogSchema.$defs.model.properties).sort())
   assert.deepEqual([...COST_FIELDS].sort(), Object.keys(catalogSchema.$defs.cost.properties).sort())
+  assert.deepEqual([...NEUTRAL_MODALITIES].sort(), [...catalogSchema.$defs.model.properties.inputModalities.items.enum].sort())
 })
 
 test("CLI writes models.json, and a malformed generation exits non-zero", async () => {

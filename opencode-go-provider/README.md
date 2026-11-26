@@ -285,7 +285,8 @@ catalog checks, so use a patched bindings file to exercise those). CI in this
 repository runs both the tests and the patched-bindings validation.
 
 `tests/schemas/acq-neutral-model-catalog.schema.json` is a verbatim copy of the
-pinned Patterns schema, vendored so `npm test` can check catalog conformance
+Patterns schema (currently ahead of the pinned release: it adds the optional
+`reasoning` and `inputModalities` model fields), vendored so `npm test` can check catalog conformance
 offline. The authoritative check remains the validator run against the pinned
 Patterns release, which CI performs.
 

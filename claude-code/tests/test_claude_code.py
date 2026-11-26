@@ -56,6 +56,19 @@ def test_provider_recommendations_and_overrides(inputs):
     assert load_provider(env)[2]["primary"] == "model-b"
 
 
+def test_provider_accepts_optional_capability_fields(inputs):
+    root, directory, _, catalog = inputs
+    catalog["models"] = [
+        {"id": "model-a", "inputModalities": ["text", "image"], "reasoning": True},
+        {"id": "model-b", "inputModalities": ["text", "audio", "pdf"], "reasoning": False},
+    ]
+    (directory / "snapshot.json").write_text(json.dumps(catalog))
+    env = {"ACQ_PROVIDER_INPUT_ROOT": str(root), "EXAMPLE_MODEL_KEY": "synthetic"}
+    _, ids, roles = load_provider(env)
+    assert ids == ["model-a", "model-b"]
+    assert roles["primary"] == "model-a"
+
+
 @pytest.mark.parametrize("change", ["missing-key", "unknown-model", "symlink", "http", "identity", "duplicate"])
 def test_provider_rejects_invalid_input(inputs, change):
     root, directory, facts, catalog = inputs
