@@ -10,7 +10,9 @@
 #   paseo-first-mate     the author's own skill plus two helper scripts
 #   27 skills by Matt Pocock (mattpocock/skills, MIT), vendored at a pinned commit,
 #   listed in the generated block below and in vendor/mattpocock-skills.json.
-#   Credit, licences and every local difference: NOTICE and docs/vendored-skills.md.
+#   show-me by HumanLayer (MIT), vendored at a pinned commit and recorded in
+#   vendor/humanlayer-show-me.json. Credit, licences and local differences:
+#   NOTICE and docs/vendored-skills.md.
 #   Upstream's code-review is installed as pocock-code-review because the
 #   playbook kit ships a different skill named code-review into the same
 #   directory.
@@ -38,7 +40,7 @@ name: personal
 displayName: Personal kit
 description: >
   The author's personal layer for coding agents in the sandbox: the Paseo
-  First Mate skill and a vendored copy of Matt Pocock's engineering skills,
+  First Mate skill plus pinned vendored skills from Matt Pocock and HumanLayer,
   dropped into ~/.agents/skills, plus a startup step that installs pinned Paseo
   plugins into the Paseo daemon when the paseo kit is also applied. Opt-in
   mixin; egress to github.com and registry.npmjs.org only; no ports.
@@ -89,7 +91,15 @@ files:
   - path: /home/agent/.agents/licenses/humanlayer-skills-LICENSE
     mode: "0644"
     source: files/home/.agents/licenses/humanlayer-skills-LICENSE
-    description: MIT notice for HumanLayer's show-me skill, adapted inside the pr skill
+    description: MIT notice for HumanLayer's vendored show-me skill and adapted pr content
+  - path: /home/agent/.agents/skills/show-me/SKILL.md
+    mode: "0644"
+    source: files/home/.agents/skills/show-me/SKILL.md
+    description: HumanLayer show-me visual communication skill at its reviewed pin
+  - path: /home/agent/.agents/skills/show-me/agents/openai.yaml
+    mode: "0644"
+    source: files/home/.agents/skills/show-me/agents/openai.yaml
+    description: OpenAI invocation policy for the vendored show-me skill
   - path: /home/agent/paseo-plugins-install.sh
     mode: "0755"
     source: files/home/paseo-plugins-install.sh
